@@ -43,6 +43,7 @@ public:
 
     void load_graph(string input_graph);
     void find_signed_kplex();
+    void check_is_kplex(ui ids_n, ui *ids);
 
 private:
     void get_degree();
