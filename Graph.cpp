@@ -2,8 +2,15 @@
 #include "Utility.h"
 #include "SignedKplex.h"
 
+static long long REBUILD_TIME = 0;
+static long long HEU_TIME = 0;
+static long long CTCP_TIME = 0;
+static long long BNB_TIME = 0;
+static long long TOT_TIME = 0;
+
 Graph::Graph(const int _k)
 {
+    K = _k;
     kplex.clear();
     K = 0;
     n = m = pm = nm = lb = ub = 0;
@@ -96,7 +103,7 @@ Graph::~Graph()
     }
 }
 
-Graph::void check_is_kplex(ui ids_n, ui *ids)
+void Graph::check_is_kplex(ui ids_n, ui *ids)
 {
     ui *deg = new ui[ids_n];
     ui *mark = new ui[n];
@@ -195,12 +202,10 @@ Graph::void check_is_kplex(ui ids_n, ui *ids)
  *
  * @param input_graph
  */
-Graph::void load_graph(string input_graph)
+void Graph::load_graph(string input_graph)
 {
     Timer t;
     t.restart();
-    Graph();
-    K = _K;
 
     ifstream input_file(input_graph, ios::in);
     if (!input_file.is_open())
@@ -309,7 +314,7 @@ Graph::void load_graph(string input_graph)
  * @brief heu_signed_kplex
  *
  */
-Graph::void heu_signed_kplex()
+void Graph::heu_signed_kplex()
 {
     Timer t;
     t.restart();
@@ -563,7 +568,7 @@ Graph::void heu_signed_kplex()
  *
  */
 
-Graph::void find_signed_kplex()
+void Graph::find_signed_kplex()
 {
     Timer t;
     t.restart();
@@ -623,7 +628,7 @@ Graph::void find_signed_kplex()
  * @brief print_result
  *
  */
-Graph::void print_result(bool print_solution)
+void Graph::print_result(bool print_solution)
 {
     cout << "\t -------------------print_result-------------------" << endl;
     cout << "\t CTCP_TIME: " << integer_to_string(CTCP_TIME);
@@ -645,7 +650,7 @@ Graph::void print_result(bool print_solution)
 }
 
 // get degree for all nodes of G
-Graph::void get_degree()
+void Graph::get_degree()
 {
     for (ui i = 0; i < n; i++)
     {
@@ -656,7 +661,7 @@ Graph::void get_degree()
  * @brief get triangle count for all edges of G
  *
  */
-Graph::void get_tricnt()
+void Graph::get_tricnt()
 {
     ui *mark = vis;
     memset(mark, 0, sizeof(ui) * n);
@@ -714,7 +719,7 @@ Graph::void get_tricnt()
  * @param sgn edge sign
  * @return new rid of u
  */
-Graph::ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n)
+ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n)
 {
     ui *v_sel = new ui[n];
     ui *rid = new ui[n];
@@ -850,7 +855,7 @@ Graph::ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n)
 
     return 0;
 }
-Graph::ui get_g(ui u, vector<Edge> &vp, ui &ids_n)
+ui Graph::get_g(ui u, vector<Edge> &vp, ui &ids_n)
 {
     Timer t;
     t.restart();
@@ -923,7 +928,7 @@ Graph::ui get_g(ui u, vector<Edge> &vp, ui &ids_n)
  * @brief get degen and ub
  *
  */
-Graph::ui degen(ui *dorder)
+ui Graph::degen(ui *dorder)
 {
     Timer t;
     t.restart();
@@ -1000,7 +1005,7 @@ Graph::ui degen(ui *dorder)
     return UB;
 }
 
-Graph::void rebuild_graph(bool *v_del, bool *e_del)
+void Graph::rebuild_graph(bool *v_del, bool *e_del)
 {
     Timer t;
     t.restart();
@@ -1076,7 +1081,7 @@ Graph::void rebuild_graph(bool *v_del, bool *e_del)
     REBUILD_TIME += t.elapsed();
 }
 
-Graph::void CTCP(int tv, int te, int del_v = -1)
+void Graph::CTCP(int tv, int te, int del_v = -1)
 {
     static int last_tv = 0;
     Timer t;

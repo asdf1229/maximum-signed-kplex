@@ -34,6 +34,12 @@ private:
     ui *n_degree; // negative degree of a point
     ept *tri_cnt;
 
+    ui *v_rid;
+    ui *vis;
+
+    bool *v_del;
+    bool *e_del;
+
     int lb, ub;
     int s_n;
 
@@ -44,14 +50,17 @@ public:
     void load_graph(string input_graph);
     void find_signed_kplex();
     void check_is_kplex(ui ids_n, ui *ids);
+    void print_result(bool print_solution);
+    void heu_signed_kplex();
 
 private:
+    ui degen(ui *dorder);
     void get_degree();
     void get_tricnt();
     ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n);
+    ui get_g(ui u, vector<Edge> &vp, ui &ids_n);
     void rebuild_graph(bool *v_del, bool *e_del);
-    void CTCP(int del_v, int tv, int te);
-    void heu_signed_kplex(int rounds, int k);
+    void CTCP(int tv, int te, int del_v);
 };
 
 #endif
