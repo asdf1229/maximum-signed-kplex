@@ -41,7 +41,6 @@ private:
     bool *e_del;
 
     int lb, ub;
-    int s_n;
 
 public:
     Graph(const int _k);
@@ -49,8 +48,8 @@ public:
 
     /**
      * @brief 从文件加载图结构
+     *
      * @param input_graph 输入文件路径
-     * 支持读取标准图文件格式，初始化邻接表等数据结构
      */
     void load_graph(string input_graph);
     /**
@@ -65,24 +64,44 @@ public:
      * @param ids 顶点集数组,存储顶点的ID
      */
     void check_is_kplex(ui ids_n, ui *ids);
+    /**
+     * @brief 打印算法运行结果
+     *
+     * @param print_solution 是否打印具体的k-plex顶点集
+     */
     void print_result(bool print_solution);
+    /**
+     * @brief 启发式算法寻找signed k-plex
+     *
+     * 该函数使用启发式方法在图中搜索signed k-plex。
+     * 主要步骤包括:
+     * 1. 使用度数排序选择初始顶点
+     * 2. 从初始顶点开始贪心扩展子图
+     * 3. 检查和维护符号平衡性约束
+     * 4. 更新当前找到的最大k-plex
+     */
     void heu_signed_kplex();
 
 private:
     /**
-     * @brief 计算图的退化序
-     * @param dorder 输出参数，存储计算得到的退化序
-     * @return 图的退化序值
+     * @brief 计算图的退化序列和上界
+     *
+     * @param dorder 用于存储退化序列的数组
+     * @return 返回图的上界值
+     *
+     * @details 得到了图的上界，得到了dorder数组，包含图的dorder序
      */
     ui degen(ui *dorder);
     /**
      * @brief 计算图中所有顶点的度数
-     * 同时计算正负边的度数分布
+     *
+     * @details 根据正确的邻接表，统计图中所有顶点的度数
      */
     void get_degree();
     /**
-     * @brief 计算图中每个顶点的三角形数量
-     * 用于后续剪枝优化
+     * @brief 计算图中所有边的三角形数量
+     *
+     * @details 根据正确的邻接表，统计图中每条边参与构成的三角形数量
      */
     void get_tricnt();
     /**
@@ -103,17 +122,19 @@ private:
     ui get_g(ui u, vector<Edge> &vp, ui &ids_n);
     /**
      * @brief 重建图结构
+     *
      * @param v_del 顶点删除标记数组
      * @param e_del 边删除标记数组
-     * 根据删除标记压缩图结构，优化存储空间
+     *
      */
     void rebuild_graph(bool *v_del, bool *e_del);
     /**
-     * @brief 核心三角形剪枝算法（Core Triangle-based Pruning）
-     * @param tv 顶点删除阈值
-     * @param te 边删除阈值
-     * @param del_v 顶点删除标记
-     * 通过三角形计数进行有效的分支限界剪枝
+     * @brief core-truss co-pruning
+     *
+     * @param tv 顶点度数阈值,度数小于tv的顶点将被删除
+     * @param te 三角形数量阈值,三角形数小于te的边将被删除
+     * @param del_v 指定要删除的顶点,默认为-1表示不指定
+     *
      */
     void CTCP(int tv, int te, int del_v);
 };

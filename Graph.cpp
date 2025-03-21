@@ -135,9 +135,9 @@ void Graph::check_is_kplex(ui ids_n, ui *ids)
     delete[] mark;
 }
 /**
- * @brief load graph from file
+ * @brief 从文件加载图结构
  *
- * @param input_graph
+ * @param input_graph 输入文件路径
  */
 void Graph::load_graph(string input_graph)
 {
@@ -155,8 +155,7 @@ void Graph::load_graph(string input_graph)
     map<ui, int> *s_G = new map<ui, int>[n];
     int u, v, flag;
     while (input_file >> u >> v >> flag) {
-        if (u == v)
-            continue;
+        if (u == v) continue;
         assert(u >= 0 && u < n);
         assert(v >= 0 && v < n);
         assert(flag == 1 || flag == -1);
@@ -227,8 +226,7 @@ void Graph::load_graph(string input_graph)
         sort(n_edges + n_pstart[i], n_edges + n_pend[i]);
     }
 
-    for (ui i = 0; i < n; i++)
-        v_rid[i] = i;
+    for (ui i = 0; i < n; i++) v_rid[i] = i;
 
     lb = 0, ub = n;
 
@@ -241,8 +239,14 @@ void Graph::load_graph(string input_graph)
 #endif
 }
 /**
- * @brief heu_signed_kplex
+ * @brief 启发式算法寻找signed k-plex
  *
+ * 该函数使用启发式方法在图中搜索signed k-plex。
+ * 主要步骤包括:
+ * 1. 使用度数排序选择初始顶点
+ * 2. 从初始顶点开始贪心扩展子图
+ * 3. 检查和维护符号平衡性约束
+ * 4. 更新当前找到的最大k-plex
  */
 void Graph::heu_signed_kplex()
 {
@@ -464,7 +468,6 @@ void Graph::heu_signed_kplex()
  * @brief find_signed_kplex
  *
  */
-
 void Graph::find_signed_kplex()
 {
     Timer t;
@@ -520,8 +523,9 @@ void Graph::find_signed_kplex()
     TOT_TIME += t.elapsed();
 }
 /**
- * @brief print_result
+ * @brief 打印算法运行结果
  *
+ * @param print_solution 是否打印具体的k-plex顶点集
  */
 void Graph::print_result(bool print_solution)
 {
@@ -536,14 +540,16 @@ void Graph::print_result(bool print_solution)
     cout << "\t kplex_size: " << kplex.size() << endl;
     if (print_solution) {
         cout << "\t -------------------maximum k-plex-------------------" << endl;
-        for (auto u : kplex)
-            printf("%d ", u);
+        for (auto u : kplex) printf("%d ", v_rid[u]);
         printf("\n");
     }
     printf("----------------------------------------------------\n");
 }
-
-// get degree for all nodes of G
+/**
+ * @brief 计算图中所有顶点的度数
+ *
+ * @details 根据正确的邻接表，统计图中所有顶点的度数
+ */
 void Graph::get_degree()
 {
     for (ui i = 0; i < n; i++) {
@@ -551,8 +557,9 @@ void Graph::get_degree()
     }
 }
 /**
- * @brief get triangle count for all edges of G
+ * @brief 计算图中所有边的三角形数量
  *
+ * @details 根据正确的邻接表，统计图中每条边参与构成的三角形数量
  */
 void Graph::get_tricnt()
 {
@@ -561,8 +568,7 @@ void Graph::get_tricnt()
     memset(tri_cnt, 0, sizeof(ept) * m);
 
     for (ui u = 0; u < n; u++) {
-        for (ept i = pstart[u]; i < pend[u]; i++)
-            mark[edges[i]] = i + 1;
+        for (ept i = pstart[u]; i < pend[u]; i++) mark[edges[i]] = i + 1;
 
         for (ept i = pstart[u]; i < pend[u]; i++) {
             ui v = edges[i];
@@ -595,8 +601,7 @@ void Graph::get_tricnt()
             }
         }
 
-        for (ept i = pstart[u]; i < pend[u]; i++)
-            mark[edges[i]] = 0;
+        for (ept i = pstart[u]; i < pend[u]; i++) mark[edges[i]] = 0;
     }
 }
 /**
@@ -786,8 +791,12 @@ ui Graph::get_g(ui u, vector<Edge> &vp, ui &ids_n)
     return rid_u;
 }
 /**
- * @brief get degen and ub
+ * @brief 计算图的退化序列和上界
  *
+ * @param dorder 用于存储退化序列的数组
+ * @return 返回图的上界值
+ *
+ * @details 得到了图的上界，得到了dorder数组，包含图的dorder序
  */
 ui Graph::degen(ui *dorder)
 {
@@ -795,34 +804,26 @@ ui Graph::degen(ui *dorder)
     t.restart();
     ui threshold = kplex.size() + 1 > K ? kplex.size() + 1 - K : 0;
 
-    for (ui i = 0; i < n; i++)
-        degree[i] = pstart[i + 1] - pstart[i];
+    for (ui i = 0; i < n; i++) degree[i] = pstart[i + 1] - pstart[i];
 
     ui dorder_n = 0, new_size = 0;
 
-    for (ui i = 0; i < n; i++)
-        if (degree[i] < threshold)
-            dorder[dorder_n++] = i;
+    for (ui i = 0; i < n; i++) if (degree[i] < threshold) dorder[dorder_n++] = i;
     for (ui i = 0; i < dorder_n; i++) {
         ui u = dorder[i];
         degree[u] = 0;
-        for (ept j = pstart[u]; j < pstart[u + 1]; j++)
-            if (degree[edges[j]] > 0) {
-                if ((degree[edges[j]]--) == threshold)
-                    dorder[dorder_n++] = i;
-            }
+        for (ept j = pstart[u]; j < pstart[u + 1]; j++) if (degree[edges[j]] > 0) {
+            if ((degree[edges[j]]--) == threshold) dorder[dorder_n++] = i;
+        }
     }
 
     ui UB = n;
-    if (dorder_n == n)
-        UB = kplex.size();
+    if (dorder_n == n) UB = kplex.size();
 
     memset(vis, 0, sizeof(ui) * n);
     for (ui i = 0; i < n; i++) {
-        if (degree[i] >= threshold)
-            dorder[dorder_n + (new_size++)] = i;
-        else
-            vis[i] = 1;
+        if (degree[i] >= threshold) dorder[dorder_n + (new_size++)] = i;
+        else vis[i] = 1;
     }
     assert(dorder_n + new_size == n);
 
@@ -835,22 +836,18 @@ ui Graph::degen(ui *dorder)
         for (ui i = 0; i < new_size; i++) {
             ui u, key;
             heap->pop_min(u, key);
-            if (key > max_core)
-                max_core = key;
+            if (key > max_core) max_core = key;
             dorder[dorder_n + i] = u;
 
             ui t_UB = max_core + K;
-            if (new_size - i < t_UB)
-                t_UB = new_size - i;
-            if (t_UB > UB)
-                UB = t_UB;
+            if (new_size - i < t_UB) t_UB = new_size - i;
+            if (t_UB > UB) UB = t_UB;
 
             vis[u] = 1;
 
-            for (ept j = pstart[u]; j < pend[u]; j++)
-                if (vis[edges[j]] == 0) {
-                    heap->decrement(edges[j], 1);
-                }
+            for (ept j = pstart[u]; j < pend[u]; j++) if (vis[edges[j]] == 0) {
+                heap->decrement(edges[j], 1);
+            }
         }
 
         printf("*** Degen(unsigned): max_core: %u, UB: %u, Time: %s (microseconds)\n", max_core, UB, integer_to_string(t.elapsed()).c_str());
@@ -860,58 +857,62 @@ ui Graph::degen(ui *dorder)
     return UB;
 }
 
+/**
+ * @brief 重建图结构
+ *
+ * @param v_del 顶点删除标记数组
+ * @param e_del 边删除标记数组
+ *
+ */
 void Graph::rebuild_graph(bool *v_del, bool *e_del)
 {
     Timer t;
     t.restart();
 
-    // ui* rid = vis;
     ui *rid = new ui[n];
-    ui cnt = 0;
+    ui new_n = 0;
     for (ui i = 0; i < n; i++) {
         if (!v_del[i]) {
-            rid[i] = cnt++;
+            v_rid[new_n] = v_rid[i];
+            rid[i] = new_n++;
         }
     }
 
-    cnt = 0;
+    new_n = 0;
     ept pos = 0, p_pos = 0, n_pos = 0;
     pstart[0] = p_pstart[0] = n_pstart[0] = 0;
-    for (ui u = 0; u < n; u++)
-        if (!v_del[u]) {
-            ept p_pointer = p_pstart[u], n_pointer = n_pstart[u];
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i]) {
-                    ui v = edges[i];
-                    if (!v_del[v]) {
-                        edges[pos++] = rid[v];
+    for (ui u = 0; u < n; u++) if (!v_del[u]) {
+        ept p_pointer = p_pstart[u], n_pointer = n_pstart[u];
+        for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) {
+            ui v = edges[i];
+            if (!v_del[v]) {
+                edges[pos++] = rid[v];
 
-                        while (p_pointer < p_pend[u] && p_edges[p_pointer] < v)
-                            p_pointer++;
-                        while (n_pointer < n_pend[u] && n_edges[n_pointer] < v)
-                            n_pointer++;
+                // 寻找边(u,v)在正负边表中的位置
+                while (p_pointer < p_pend[u] && p_edges[p_pointer] < v) p_pointer++;
+                while (n_pointer < n_pend[u] && n_edges[n_pointer] < v) n_pointer++;
 
-                        if (p_pointer < p_pend[u] && p_edges[p_pointer] == v) {
-                            p_edges[p_pos++] = rid[v];
-                            p_pointer++;
-                        }
-                        else if (n_pointer < n_pend[u] && n_edges[n_pointer] == v) {
-                            n_edges[n_pos++] = rid[v];
-                            n_pointer++;
-                        }
-                        else {
-                            throw std::runtime_error("rebuild_graph error");
-                        }
-                    }
+                if (p_pointer < p_pend[u] && p_edges[p_pointer] == v) {
+                    p_edges[p_pos++] = rid[v];
+                    p_pointer++;
                 }
-            pend[cnt] = pos;
-            p_pend[cnt] = p_pos;
-            n_pend[cnt] = n_pos;
-            cnt++;
+                else if (n_pointer < n_pend[u] && n_edges[n_pointer] == v) {
+                    n_edges[n_pos++] = rid[v];
+                    n_pointer++;
+                }
+                else {
+                    throw std::runtime_error("rebuild_graph error");
+                }
+            }
         }
+        pend[new_n] = pos;
+        p_pend[new_n] = p_pos;
+        n_pend[new_n] = n_pos;
+        new_n++;
+    }
 
     assert(pos % 2 == 0 && p_pos % 2 == 0 && n_pos % 2 == 0);
-    n = cnt;
+    n = new_n;
     m = pos;
     pm = p_pos;
     nm = n_pos;
@@ -927,6 +928,14 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
     REBUILD_TIME += t.elapsed();
 }
 
+/**
+ * @brief core-truss co-pruning
+ * 
+ * @param tv 顶点度数阈值,度数小于tv的顶点将被删除
+ * @param te 三角形数量阈值,三角形数小于te的边将被删除
+ * @param del_v 指定要删除的顶点,默认为-1表示不指定
+ * 
+ */
 void Graph::CTCP(int tv, int te, int del_v = -1)
 {
     static int last_tv = 0;
@@ -970,83 +979,63 @@ void Graph::CTCP(int tv, int te, int del_v = -1)
             ui v = edges[id_uv];
             ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
             assert(e_del[id_uv] == e_del[id_vu]);
-            if (v_del[u] || v_del[v] || e_del[id_uv])
-                continue;
+            if (v_del[u] || v_del[v] || e_del[id_uv]) continue;
             e_del[id_uv] = 1;
             e_del[id_vu] = 1;
 
-            if ((degree[u]--) == tv)
-                qv.push(u);
-            if ((degree[v]--) == tv)
-                qv.push(v);
+            if ((degree[u]--) == tv) qv.push(u);
+            if ((degree[v]--) == tv) qv.push(v);
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i])
-                    mark[edges[i]] = i + 1;
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = i + 1;
 
-            for (ept j = pstart[v]; j < pend[v]; j++)
-                if (!e_del[j]) {
-                    ui w = edges[j];
-                    if (mark[w]) { // triangle count--
-                        ept id_uw = mark[w] - 1;
-                        ept id_wu = pstart[w] + find(edges + pstart[w], edges + pend[w], u);
-                        if ((tri_cnt[id_uw]--) == te)
-                            qe.push(make_pair(u, id_uw));
-                        tri_cnt[id_wu]--;
+            for (ept j = pstart[v]; j < pend[v]; j++) if (!e_del[j]) {
+                ui w = edges[j];
+                if (mark[w]) { // triangle count--
+                    ept id_uw = mark[w] - 1;
+                    ept id_wu = pstart[w] + find(edges + pstart[w], edges + pend[w], u);
+                    if ((tri_cnt[id_uw]--) == te) qe.push(make_pair(u, id_uw));
+                    tri_cnt[id_wu]--;
 
-                        ept id_vw = j;
-                        ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
-                        if ((tri_cnt[id_vw]--) == te)
-                            qe.push(make_pair(v, id_vw));
-                        tri_cnt[id_wv]--;
-                    }
+                    ept id_vw = j;
+                    ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
+                    if ((tri_cnt[id_vw]--) == te) qe.push(make_pair(v, id_vw));
+                    tri_cnt[id_wv]--;
                 }
+            }
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i])
-                    mark[edges[i]] = 0;
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = 0;
         }
         if (!qv.empty()) {
             ui u = qv.front();
             qv.pop();
-            if (v_del[u])
-                continue;
+            if (v_del[u]) continue;
             v_del[u] = 1;
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i])
-                    mark[edges[i]] = i + 1;
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = i + 1;
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i]) {
-                    ui v = edges[i];
-                    for (ept j = pstart[v]; j < pend[v]; j++)
-                        if (!e_del[j]) {
-                            ui w = edges[j];
-                            if (mark[w] && v < w) { // triangle count--
-                                ept id_vw = j;
-                                ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
-                                if ((tri_cnt[id_vw]--) == te)
-                                    qe.push(make_pair(v, id_vw));
-                                tri_cnt[id_wv]--;
-                            }
-                        }
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) {
+                ui v = edges[i];
+                for (ept j = pstart[v]; j < pend[v]; j++) if (!e_del[j]) {
+                    ui w = edges[j];
+                    if (mark[w] && v < w) { // triangle count--
+                        ept id_vw = j;
+                        ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
+                        if ((tri_cnt[id_vw]--) == te) qe.push(make_pair(v, id_vw));
+                        tri_cnt[id_wv]--;
+                    }
                 }
+            }
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i])
-                    mark[edges[i]] = 0;
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = 0;
 
-            for (ept i = pstart[u]; i < pend[u]; i++)
-                if (!e_del[i]) {
-                    ui v = edges[i];
-                    if ((degree[v]--) == tv)
-                        qv.push(v);
-                    ept id_uv = i;
-                    ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
-                    e_del[id_uv] = 1;
-                    e_del[id_vu] = 1;
-                }
+            for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) {
+                ui v = edges[i];
+                if ((degree[v]--) == tv) qv.push(v);
+                ept id_uv = i;
+                ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
+                e_del[id_uv] = 1;
+                e_del[id_vu] = 1;
+            }
         }
     }
 
