@@ -1,3 +1,9 @@
+/**
+ * @file Graph.cpp
+ * @brief 图数据结构的实现文件
+ * @author Trae
+ * @date 2025-03-21
+ */
 #include "Graph.h"
 #include "Utility.h"
 #include "SignedKplex.h"
