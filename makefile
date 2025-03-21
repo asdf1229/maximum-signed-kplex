@@ -1,4 +1,4 @@
-CC=g++ -flto -O3
+CC=g++ -g -flto -O3
 CFLAGS=-c -I. -std=c++11
 
 all: clean main

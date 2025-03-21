@@ -37,9 +37,6 @@ private:
     ui *v_rid;
     ui *vis;
 
-    bool *v_del;
-    bool *e_del;
-
     int lb, ub;
 
 public:
@@ -70,6 +67,7 @@ public:
      * @param print_solution 是否打印具体的k-plex顶点集
      */
     void print_result(bool print_solution);
+    ///TODO
     /**
      * @brief 启发式算法寻找signed k-plex
      *
@@ -111,15 +109,17 @@ private:
      * @param ids_n 子图顶点数量
      * @return 子图的规模
      */
-    ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n);
+    ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark);
     /**
-     * @brief 计算顶点u的g值（k-plex核心度）
-     * @param u 目标顶点ID
-     * @param vp 边集合引用
-     * @param ids_n 候选顶点数量
-     * @return 顶点u的g值
-     */
-    ui get_g(ui u, vector<Edge> &vp, ui &ids_n);
+      * @brief 提取顶点u的2-hop子图,不进行剪枝
+      *
+      * @param u 需要提取子图的中心顶点
+      * @param vp 用于存储子图边的vector
+      * @param ids_n 返回子图的顶点数
+      * @param sub_v_rid 顶点映射表，维护原图顶点到子图顶点的映射
+      * @return ui 返回中心顶点的映射后的新ID
+      */
+    ui extract_graph_without_prune(ui u, vector<Edge> &vp, ui &ids_n, ui *ids);
     /**
      * @brief 重建图结构
      *
@@ -136,7 +136,7 @@ private:
      * @param del_v 指定要删除的顶点,默认为-1表示不指定
      *
      */
-    void CTCP(int tv, int te, int del_v);
+    void CTCP(int tv, int te, int del_v = -1);
 };
 
 #endif

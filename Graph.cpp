@@ -19,7 +19,6 @@ Graph::Graph(const int _k)
     pstart = p_pstart = n_pstart = nullptr;
     pend = p_pend = n_pend = nullptr;
     degree = v_rid = vis = nullptr;
-    v_del = e_del = nullptr;
     tri_cnt = nullptr;
 }
 
@@ -40,15 +39,12 @@ Graph::~Graph()
     delete[] tri_cnt;
     delete[] v_rid;
     delete[] vis;
-    delete[] v_del;
-    delete[] e_del;
 
     pstart = pend = nullptr;
     edges = p_edges = n_edges = nullptr;
     p_pstart = p_pend = nullptr;
     n_pstart = n_pend = nullptr;
     degree = v_rid = vis = nullptr;
-    v_del = e_del = nullptr;
     tri_cnt = nullptr;
 }
 
@@ -191,8 +187,6 @@ void Graph::load_graph(string input_graph)
     degree = new ui[n];
     v_rid = new ui[n];
     vis = new ui[n];
-    v_del = new bool[n];
-    e_del = new bool[m];
 
     // construct edges
     ui idx = 0, p_idx = 0, n_idx = 0;
@@ -252,8 +246,8 @@ void Graph::heu_signed_kplex()
 {
     Timer t;
     t.restart();
-    // lb = max((int)kplex.size(), 2 * K - 1);
-    // CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    lb = max((int)kplex.size(), 2 * K - 1);
+    CTCP(lb + 1 - K, lb + 1 - 2 * K);
     ui *dorder = new ui[n];
     ub = degen(dorder);
 
@@ -443,11 +437,10 @@ void Graph::heu_signed_kplex()
         }
     }
 
-    // lb = max((int)kplex.size(), 2 * K - 1);
-    // // if (lb < kplex.size()) {
-    // //     lb = kplex.size();
-    // CTCP(lb + 1 - K, lb + 1 - 2 * K);
-    // }
+    if (lb < kplex.size()) {
+        lb = kplex.size();
+        CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    }
 
     delete[] dorder;
     delete[] pn;
@@ -472,54 +465,63 @@ void Graph::find_signed_kplex()
 {
     Timer t;
     t.restart();
+    if (kplex.size() >= ub) return;
 
-    if (kplex.size() >= ub)
-        return;
-
-    SIGNED_KPLEX *kplex_solver = new SIGNED_KPLEX();
-    kplex_solver->allocateMemory(n, m);
+    SIGNED_KPLEX *signed_kplex_solver = new SIGNED_KPLEX();
+    signed_kplex_solver->allocateMemory(n, m);
 
     vector<Edge> vp;
     vp.reserve(m);
 
+    ui *ids = new ui[n];
+    ui *mark = new ui[n];
+    memset(mark, 0, sizeof(ui) * n);
+    ui *Q = new ui[n];
+    ui *nei_degree = new ui[n];
+    ui *rid = new ui[n];
+
     while (n > lb) {
         printf("n = %d, lb = %d\n", n, lb);
         // get u
-        for (ui i = 0; i < n; i++)
-            degree[i] = pstart[i + 1] - pstart[i];
+        get_degree();
         ui u = 0;
-        for (ui i = 1; i < n; i++)
-            if (degree[u] > degree[i])
-                u = i;
-
+        for (ui i = 1; i < n; i++) if (degree[u] > degree[i]) u = i;
         // printf("deg = %d, u = %d\n", degree[u], u);
 
         // get g
         ui s_n = 0;
         vp.clear();
         ui rid_u = 0;
-        // rid_u = get_g(u, vp, s_n);
-        extract_subgraph(u, vp, s_n);
+        // rid_u = extract_graph_without_prune(u, vp, s_n, ids);
+        extract_subgraph(u, vp, s_n, ids, rid, Q, nei_degree, mark);
+
+        // //输出vp和s_n的大小信息
+        // printf("vp size = %d, s_n = %d\n", vp.size(), s_n);
+        // for (auto &v : vp)
+        //     printf("(%d, %d, %d)\n", v.a, v.b, v.c);
 
         if (s_n > lb) {
             // bnb
             Timer t_bnb;
             t_bnb.restart();
-            kplex_solver->load_graph(s_n, vp);
-            kplex_solver->kPlex(K, kplex, (s_n == n) ? -1 : rid_u);
+            signed_kplex_solver->load_graph(s_n, vp);
+            signed_kplex_solver->kPlex(K, kplex, (s_n == n) ? -1 : rid_u);
             BNB_TIME += t_bnb.elapsed();
         }
 
-        if (kplex.size() > lb)
+        if (kplex.size() > lb) {
             lb = kplex.size();
-        if (s_n == n)
-            break;
+            for (auto &v : kplex)
+                v = v_rid[ids[v]];
+        }
+
+        if (s_n == n) break;
 
         // CTCP
         CTCP(lb + 1 - K, lb + 1 - 2 * K, u);
     }
 
-    delete kplex_solver;
+    delete signed_kplex_solver;
     TOT_TIME += t.elapsed();
 }
 /**
@@ -540,7 +542,7 @@ void Graph::print_result(bool print_solution)
     cout << "\t kplex_size: " << kplex.size() << endl;
     if (print_solution) {
         cout << "\t -------------------maximum k-plex-------------------" << endl;
-        for (auto u : kplex) printf("%d ", v_rid[u]);
+        for (auto u : kplex) printf("%d ", u);
         printf("\n");
     }
     printf("----------------------------------------------------\n");
@@ -605,106 +607,109 @@ void Graph::get_tricnt()
     }
 }
 /**
- * @brief Extract the 2-hop subgraph of u
- *
- * @param u
- * @param vp edges of the subgraph
- * @param sgn edge sign
- * @return new rid of u
- */
-ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n)
+  * @brief 提取顶点u的2-hop子图,并进行剪枝
+  *
+  * @param u 需要提取子图的中心顶点
+  * @param vp 用于存储子图边的vector
+  * @param ids_n 返回子图的顶点数
+  * @param sub_v_rid 顶点映射表，维护原图顶点到子图顶点的映射
+  * @return ui 返回中心顶点的映射后的新ID
+  *
+  * @details
+  * 中心顶点标记为1，邻居标记为2，2-hop邻居标记为3
+  * 该函数提取以u为中心的2-hop子图,并进行剪枝优化:
+  * 1. 首先提取u的直接邻居
+  * 2. 计算邻居节点在子图中的度数,删除度数过小的节点
+  * 3. 提取2-hop邻居并继续剪枝
+  * 4. 重新编号并构建子图的边集
+  */
+ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark)
 {
-    ui *v_sel = new ui[n];
-    ui *rid = new ui[n];
-    ui *ids = new ui[n];
-    ui Q_n = 0;
-    ui *Q = new ui[n];
-    ui *nei_degree = new ui[n];
-
-    memset(v_sel, 0, sizeof(ui) * n);
+#ifndef NDEBUG
+    for (ui i = 0; i < n; i++) assert(mark[i] == 0);
+#endif
     vp.clear();
 
+    // 添加中心顶点u
     ids_n = 0;
     ids[ids_n++] = u;
-    v_sel[u] = 1;
+    mark[u] = 1;
 
+    // 处理u的直接邻居
     for (ept i = pstart[u]; i < pend[u]; i++) {
         ui v = edges[i];
+        mark[v] = 2;
         ids[ids_n++] = v;
-        v_sel[v] = 2;
     }
 
+    // Any two adjacent vertices must have at least l−2k common neighbors
+    ui Q_n = 0;
     for (ui i = 1; i < ids_n; i++) {
-        u = ids[i];
-        nei_degree[u] = 0;
-        for (ept j = pstart[u]; j < pend[u]; j++)
-            if (v_sel[edges[j]] == 2)
-                ++nei_degree[u];
-        if (nei_degree[u] + 2 * K <= kplex.size())
-            Q[Q_n++] = u;
+        ui v = ids[i];
+        nei_degree[v] = 0;
+        for (ept j = pstart[v]; j < pend[v]; j++) if (mark[edges[j]] == 2) ++nei_degree[v];
+        if (nei_degree[v] + 2 * K <= kplex.size()) Q[Q_n++] = v;
     }
     for (ui i = 0; i < Q_n; i++) {
-        u = Q[i];
-        v_sel[u] = 10;
-        for (ept j = pstart[u]; j < pend[u]; j++)
-            if (v_sel[edges[j]] == 2) {
-                if ((nei_degree[edges[j]]--) + 2 * K == kplex.size() + 1) {
-                    assert(Q_n < m / 2);
-                    Q[Q_n++] = edges[j];
-                }
+        ui v = Q[i];
+        mark[v] = 10; // deleted
+        for (ept j = pstart[v]; j < pend[v]; j++) if (mark[edges[j]] == 2) {
+            if ((nei_degree[edges[j]]--) + 2 * K == kplex.size() + 1) {
+                Q[Q_n++] = edges[j];
             }
+        }
     }
-    assert(Q_n <= ids_n);
+    assert(Q_n <= ids_n - 1);
+
+    // 中心顶点的上界
     if (ids_n - 1 - Q_n + K <= kplex.size()) {
-        // printf("%d %d %d %d\n", ids_n, Q_n, K, kplex.size());
-        // printf("ids_n - 1 - Q_n + K = %d\n", ids_n - 1 - Q_n + K);
-        for (ui i = 0; i < ids_n; i++)
-            v_sel[ids[i]] = 0;
+        for (ui i = 0; i < ids_n; i++) mark[ids[i]] = 0;
         ids_n = 0;
-        delete[] v_sel;
-        delete[] rid;
-        delete[] ids;
-        delete[] Q;
-        delete[] nei_degree;
         return 0;
     }
 
-    ui nr_size = ids_n;
-    for (ui i = 1; i < nr_size; i++)
-        if (v_sel[ids[i]] == 2) {
-            u = ids[i];
-            for (ept j = pstart[u]; j < pend[u]; j++) {
-                if (!v_sel[edges[j]]) {
-                    ids[ids_n++] = edges[j];
-                    v_sel[edges[j]] = 3;
-                    nei_degree[edges[j]] = 1;
-                }
-                else if (v_sel[edges[j]] == 3)
-                    ++nei_degree[edges[j]];
+    // 处理2-hop邻居
+    ui nei_size = ids_n;
+    for (ui i = 1; i < nei_size; i++) if (mark[ids[i]] == 2) {
+        ui v = ids[i];
+        for (ept j = pstart[v]; j < pend[v]; j++) {
+            ui w = edges[j];
+            if (!mark[w]) {
+                ids[ids_n++] = w;
+                mark[w] = 3;
+                nei_degree[w] = 1;
             }
+            else if (mark[w] == 3) nei_degree[w]++;
         }
-
-    ui new_size = 1;
-    for (ui i = 1; i < nr_size; i++) {
-        if (v_sel[ids[i]] == 10)
-            v_sel[ids[i]] = 0;
-        else
-            ids[new_size++] = ids[i];
     }
 
-    assert(new_size + Q_n == nr_size);
-    ui old_nr_size = nr_size;
-    nr_size = new_size;
-    for (ui i = old_nr_size; i < ids_n; i++) {
-        if (nei_degree[ids[i]] + 2 * K <= kplex.size() + 2)
-            v_sel[ids[i]] = 0;
-        else
-            ids[new_size++] = ids[i];
+    ui new_size = 1;
+    for (ui i = 1; i < nei_size; i++) {
+        if (mark[ids[i]] == 10) mark[ids[i]] = 0;
+        else ids[new_size++] = ids[i];
+    }
+
+    assert(new_size + Q_n == nei_size);
+    ui old_nei_size = nei_size;
+    nei_size = new_size;
+    // Any two non-adjacent vertices must have at least l−2k+2 common neighbors
+    for (ui i = old_nei_size; i < ids_n; i++) {
+        if (nei_degree[ids[i]] + 2 * K <= kplex.size() + 2) mark[ids[i]] = 0;
+        else ids[new_size++] = ids[i];
     }
     ids_n = new_size;
 
+#ifndef NDEBUG
+    assert(mark[ids[0]] == 1);
+    for (ui i = 1; i < nei_size; i++)
+        assert(mark[ids[i]] == 2);
+    for (ui i = nei_size; i < ids_n; i++)
+        assert(mark[ids[i]] == 3);
+#endif
+
+    // 重新编号
     for (ui i = 0; i < ids_n; i++) {
-        assert(v_sel[ids[i]]);
+        assert(mark[ids[i]]);
         rid[ids[i]] = i;
     }
 
@@ -712,26 +717,34 @@ ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n)
         u = ids[i];
         for (ept i = p_pstart[u]; i < p_pend[u]; i++) {
             ui v = p_edges[i];
-            if (v_sel[v] && u < v) {
+            if (mark[v] && u < v) {
                 vp.push_back(Edge(rid[u], rid[v], 1));
             }
         }
         for (ept i = n_pstart[u]; i < n_pend[u]; i++) {
             ui v = n_edges[i];
-            if (v_sel[v] && u < v) {
+            if (mark[v] && u < v) {
                 vp.push_back(Edge(rid[u], rid[v], -1));
             }
         }
     }
-    delete[] v_sel;
-    delete[] rid;
-    delete[] ids;
-    delete[] Q;
-    delete[] nei_degree;
 
+    for (ui i = 0; i < ids_n; i++) mark[ids[i]] = 0;
+#ifndef NDEBUG
+    for (ui i = 0; i < n; i++) assert(mark[i] == 0);
+#endif
     return 0;
 }
-ui Graph::get_g(ui u, vector<Edge> &vp, ui &ids_n)
+/**
+  * @brief 提取顶点u的2-hop子图,不进行剪枝
+  *
+  * @param u 需要提取子图的中心顶点
+  * @param vp 用于存储子图边的vector
+  * @param ids_n 返回子图的顶点数
+  * @param sub_v_rid 顶点映射表，维护原图顶点到子图顶点的映射
+  * @return ui 返回中心顶点的映射后的新ID
+  */
+ui Graph::extract_graph_without_prune(ui u, vector<Edge> &vp, ui &ids_n, ui *ids)
 {
     Timer t;
     t.restart();
@@ -749,43 +762,43 @@ ui Graph::get_g(ui u, vector<Edge> &vp, ui &ids_n)
         }
     }
 
-    // build adjacent matrix
+    // 构建新旧顶点ID的映射
     ui rid_u = n;
     ui *rid = new ui[n];
     ui cnt = 0;
-    for (ui i = 0; i < n; i++)
-        if (v_sel[i]) {
-            if (u == i)
-                rid_u = cnt;
-            rid[i] = cnt++;
-        }
-    ids_n = cnt;
 
-    for (ui u = 0; u < n; u++)
-        if (v_sel[u]) {
-            for (ept i = p_pstart[u]; i < p_pend[u]; i++) {
-                ui v = p_edges[i];
-                if (v_sel[v]) {
-                    if (u < v) {
-                        vp.push_back(Edge(rid[u], rid[v], 1));
-                    }
-                }
-            }
-            for (ept i = n_pstart[u]; i < n_pend[u]; i++) {
-                ui v = n_edges[i];
-                if (v_sel[v]) {
-                    if (u < v) {
-                        vp.push_back(Edge(rid[u], rid[v], -1));
-                    }
+    for (ui i = 0; i < n; i++) if (v_sel[i]) {
+        if (u == i) rid_u = cnt;
+        ids[cnt] = i;
+        rid[i] = cnt++;
+    }
+    ids_n = cnt;
+    printf("cnt = %d\n", cnt);
+
+    for (ui u = 0; u < n; u++) if (v_sel[u]) {
+        for (ept i = p_pstart[u]; i < p_pend[u]; i++) {
+            ui v = p_edges[i];
+            if (v_sel[v]) {
+                if (u < v) {
+                    vp.push_back(Edge(rid[u], rid[v], 1));
                 }
             }
         }
+        for (ept i = n_pstart[u]; i < n_pend[u]; i++) {
+            ui v = n_edges[i];
+            if (v_sel[v]) {
+                if (u < v) {
+                    vp.push_back(Edge(rid[u], rid[v], -1));
+                }
+            }
+        }
+    }
 
     delete[] rid;
     delete[] v_sel;
 
 #ifndef NDEBUG
-    cout << "\t get_g, T : " << integer_to_string(t.elapsed()) << ",\t n=" << ids_n << endl;
+    cout << "\t extract_graph_without_prune, T : " << integer_to_string(t.elapsed()) << ",\t n=" << ids_n << endl;
 #endif
     assert(rid_u != n);
     return rid_u;
@@ -930,13 +943,13 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
 
 /**
  * @brief core-truss co-pruning
- * 
+ *
  * @param tv 顶点度数阈值,度数小于tv的顶点将被删除
  * @param te 三角形数量阈值,三角形数小于te的边将被删除
  * @param del_v 指定要删除的顶点,默认为-1表示不指定
- * 
+ *
  */
-void Graph::CTCP(int tv, int te, int del_v = -1)
+void Graph::CTCP(int tv, int te, int del_v)
 {
     static int last_tv = 0;
     Timer t;
@@ -951,7 +964,8 @@ void Graph::CTCP(int tv, int te, int del_v = -1)
         degree[i] = pstart[i + 1] - pstart[i];
     get_tricnt();
 
-    // ui* mark = vis;
+    bool *v_del = new bool[n];
+    bool *e_del = new bool[m];
     ui *mark = new ui[n];
     memset(v_del, 0, sizeof(bool) * n);
     memset(e_del, 0, sizeof(bool) * m);
@@ -1039,9 +1053,11 @@ void Graph::CTCP(int tv, int te, int del_v = -1)
         }
     }
 
-    delete[] mark;
     rebuild_graph(v_del, e_del);
 
+    delete[] v_del;
+    delete[] e_del;
+    delete[] mark;
 #ifndef NDEBUG
     get_degree();
     get_tricnt();
