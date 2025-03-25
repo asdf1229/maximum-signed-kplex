@@ -1,7 +1,7 @@
 /**
  * @file Graph.cpp
  * @brief 图数据结构的实现文件
- * @author Trae
+ * @author asdf1229
  * @date 2025-03-21
  */
 #include "Graph.h"
@@ -976,8 +976,7 @@ void Graph::CTCP(int tv, int te, int del_v)
     memset(v_del, 0, sizeof(bool) * n);
     memset(e_del, 0, sizeof(bool) * m);
     memset(mark, 0, sizeof(ui) * n);
-    if (del_v != -1)
-        qv.push((ui)del_v);
+    if (del_v != -1) qv.push((ui)del_v);
     if (last_tv < tv) {
         for (ui u = 0; u < n; u++) {
             if (degree[u] < tv)

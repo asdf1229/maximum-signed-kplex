@@ -29,7 +29,10 @@ private:
     ui *vis;
     queue<ui> Qv;
 
-    int total = 0;
+    int dfs_cnt = 0;
+    int dfs_cnt_after_ub = 0;
+    vector<int> level_cnt;
+    vector<int> level_cnt_after_ub;
     bool *s_matrix_flag;
 
 public:
@@ -114,6 +117,8 @@ public:
         level_id = new ui[n];
         vis = new ui[n];
         s_matrix_flag = new bool[matrix_size];
+        level_cnt.resize(n, 0);
+        level_cnt_after_ub.resize(n, 0);
     }
 
     void load_graph(ui _n, const vector<Edge> &vp)
@@ -151,10 +156,9 @@ public:
     {
         K = K_;
         best_solution_size = kplex.size();
-        ui C_end = 0;
-        init(C_end, choose_u);
-        if (C_end)
-            kplex_search(0, C_end, 1, choose_u);
+        ui S_end = 0, C_end = 0;
+        init(S_end, C_end, choose_u);
+        if (C_end) kplex_search(S_end, C_end, 1);
         if (best_solution_size > kplex.size()) {
             kplex.clear();
             for (int i = 0; i < best_solution_size; i++)
@@ -164,215 +168,154 @@ public:
 
 private:
     // init S, C
-    void init(ui &C_end, int choose_u)
+    void init(ui &S_end, ui &C_end, int choose_u)
     {
-        C_end = 0;
+        S_end = 0, C_end = 0;
         // k-core
         queue<ui> q;
         memset(vis, 0, sizeof(ui) * n);
-        for (ui i = 0; i < n; i++)
-            if (degree[i] + K <= best_solution_size)
-                q.push(i);
+        for (ui i = 0; i < n; i++) if (degree[i] + K <= best_solution_size) q.push(i);
         while (!q.empty()) {
-            ui u = q.front();
-            q.pop();
-            if (vis[u])
-                continue;
-            vis[u] = 1;
-            for (ui v = 0; v < n; v++)
-                if (matrix[u * n + v]) {
-                    assert(degree[v]);
-                    degree[v]--;
-                    if (degree[v] + K == best_solution_size)
-                        q.push(v);
-                }
+            ui u = q.front(); q.pop();
+            if (vis[u]) continue; vis[u] = 1;
+            for (ui v = 0; v < n; v++) if (matrix[u * n + v]) {
+                if ((degree[v]--) + K == best_solution_size) q.push(v);
+            }
         }
 
-        if (choose_u != -1 && vis[choose_u])
-            return;
+        if (choose_u != -1 && vis[choose_u]) return;
 
-        for (ui i = 0; i < n; i++)
-            SC_rid[i] = n;
+        for (ui i = 0; i < n; i++) SC_rid[i] = n;
 
-        for (ui i = 0; i < n; i++)
-            if (!vis[i]) {
-                SC[C_end] = i;
-                SC_rid[i] = C_end++;
-            }
+        for (ui i = 0; i < n; i++) if (!vis[i]) {
+            SC[C_end] = i;
+            SC_rid[i] = C_end++;
+        }
 
         memset(degree, 0, sizeof(ui) * n);
         for (ui i = 0; i < C_end; i++) {
             ui u = SC[i];
             assert(SC_rid[u] == i);
-            for (ui j = 0; j < C_end; j++)
-                if (matrix[u * n + SC[j]])
-                    degree[u]++;
+            for (ui j = 0; j < C_end; j++) if (matrix[u * n + SC[j]]) degree[u]++;
         }
 
         memset(level_id, 0, sizeof(ui) * n);
-        for (ui i = 0; i < C_end; i++)
-            level_id[SC[i]] = n;
+        for (ui i = 0; i < C_end; i++) level_id[SC[i]] = n;
 
         assert(Qv.empty());
+
+        // 将choose_u加入S
+        if (choose_u != -1) {
+            bool pruned = moveu_C_to_S(S_end, C_end, 0, choose_u);
+            assert(pruned == false);
+            if (pruned) {
+                S_end = 0, C_end = 0;
+                return;
+            }
+            assert(choose_u == SC[0]);
+            assert(SC_rid[choose_u] == 0);
+            assert(S_end == 1);
+        }
     }
 
-    void kplex_search(ui S_end, ui C_end, ui level, int choose_u)
+    void kplex_search(ui S_end, ui C_end, ui level)
     {
-        // printf("S_end = %d, C_end = %d, level = %d\n", S_end, C_end, level);
         if (S_end > best_solution_size) {
             best_solution_size = S_end;
-            for (ui i = 0; i < best_solution_size; i++)
-                best_solution[i] = SC[i];
+            for (ui i = 0; i < best_solution_size; i++) best_solution[i] = SC[i];
 #ifndef NDEBUG
+            // 每个点在S中的缺失边少于K
             for (ui i = 0; i < best_solution_size; i++)
                 assert(degree_in_S[best_solution[i]] + K >= best_solution_size);
             printf("Find a k-plex of size: %u\n", best_solution_size);
 #endif
         }
-        if (C_end <= best_solution_size)
-            return;
-
-        // upper bound
-        // ui ub1 = upper_bound_based_partition_1(S_end, C_end);
-        // ui ub2 = upper_bound_based_partition_2(S_end, C_end);
-        // ui ub3 = upper_bound_based_partition_3(S_end, C_end);
-        // assert(!(ub1 <= best_solution_size && ub2 > best_solution_size));
-        // assert(ub1 <= ub2);
-        // assert(ub2 == ub3);
-        // if(ub1 <= best_solution_size) return;
-        // if(ub2 <= best_solution_size) return;
-        // if (ub3 <= best_solution_size) return;
-
-        ui pre_kplex_size = best_solution_size, old_C_end = C_end;
-        total++;
-        // printf("S_end = %d, C_end = %d, kplex = %d, total = %d\n", S_end, C_end, best_solution_size, total);
+        if (C_end <= best_solution_size) return;
 
 #ifndef NDEBUG
-        for (ui i = 0; i < C_end; i++)
-            assert(degree[SC[i]] + K > best_solution_size);
-        for (ui i = 0; i < S_end; i++)
-            assert(degree_in_S[SC[i]] + K >= S_end);
-        for (ui i = S_end; i < C_end; i++)
-            assert(degree_in_S[SC[i]] + K > S_end);
-        for (ui i = 0; i < C_end; i++)
-            assert(level_id[SC[i]] == n);
-        for (ui i = 0; i < C_end; i++)
-            assert(check_balance(S_end, SC[i]));
+        for (ui i = 0; i < C_end; i++) assert(degree[SC[i]] + K > best_solution_size);
+        for (ui i = 0; i < S_end; i++) assert(degree_in_S[SC[i]] + K >= S_end);
+        for (ui i = S_end; i < C_end; i++) assert(degree_in_S[SC[i]] + K > S_end);
+        for (ui i = 0; i < C_end; i++) assert(level_id[SC[i]] == n);
+        for (ui i = 0; i < C_end; i++) assert(check_balance(S_end, SC[i]));
 #endif
+
+        dfs_cnt++;
+        level_cnt[level]++;
+
+        // upper bound
+        // ui ub = upper_bound(S_end, C_end);
+        // if (ub <= best_solution_size) return;
+
+        dfs_cnt_after_ub++;
+        level_cnt_after_ub[level]++;
+
+        ui old_kplex_size = best_solution_size, old_C_end = C_end;
+
         // choose branching vertex
-        bool must_choose = false;
-        ui u = n;
-        if (choose_u != -1) {
-            assert(S_end == 0);
-            assert(SC_rid[choose_u] < C_end);
-            u = choose_u;
-            must_choose = true;
-        }
-        else {
-            u = choose_branch_vertex(S_end, C_end);
-        }
+        ui u = choose_branch_vertex_with_min_degree(S_end, C_end);
         assert(u != n);
         assert(SC[SC_rid[u]] == u && SC_rid[u] >= S_end && SC_rid[u] < C_end);
         assert(degree[u] + K > best_solution_size);
         assert(check_balance(S_end, u));
 
         // the first branch includes u into S
-        bool pruned = move_u_to_S(S_end, C_end, level, u);
-        if (!pruned)
-            kplex_search(S_end, C_end, level + 1, -1);
+        bool pruned = moveu_C_to_S(S_end, C_end, level, u);
+        if (!pruned) kplex_search(S_end, C_end, level + 1);
         restore_C(S_end, C_end, old_C_end, level);
-        move_u_to_C(S_end, C_end, level);
+        moveu_S_to_C(S_end, C_end, level);
         assert(C_end == old_C_end);
         assert(Qv.empty());
         assert(u == SC[S_end]);
 
         // the second branch exclude u from S
-        if (must_choose)
-            return;
         pruned = false;
-        if (best_solution_size > pre_kplex_size) {
-            if (C_end <= best_solution_size)
-                return;
+        if (best_solution_size > old_kplex_size) {
+            if (C_end <= best_solution_size) return;
             // ub = upper_bound(S_end, C_end);
             // if(ub <= best_solution_size) return;
-            pruned = collect_removable_vertices(S_end, C_end, level);
+            pruned = reduce_SC_based_lb(S_end, C_end, level);
         }
-
-        if (!pruned)
-            pruned = remove_u_from_C(S_end, C_end, u, level);
-        if (!pruned) {
-#ifndef NDEBUG
-            for (ui i = 0; i < C_end; i++)
-                assert(degree[SC[i]] + K > best_solution_size);
-            for (ui i = 0; i < S_end; i++)
-                assert(degree_in_S[SC[i]] + K >= S_end);
-            for (ui i = S_end; i < C_end; i++)
-                assert(degree_in_S[SC[i]] + K > S_end);
-            for (ui i = 0; i < C_end; i++)
-                assert(level_id[SC[i]] == n);
-#endif
-            kplex_search(S_end, C_end, level + 1, -1);
-        }
+        if (!pruned) pruned = moveu_C_to_X(S_end, C_end, u, level);
+        if (!pruned) kplex_search(S_end, C_end, level + 1);
         restore_C(S_end, C_end, old_C_end, level);
     }
 
-    ui choose_branch_vertex(ui S_end, ui C_end)
+    ui choose_branch_vertex_with_min_degree(ui S_end, ui C_end)
     {
-        return SC[S_end];
-        // ui u = n, min_degree_in_S = n;
-        // for(ui i = 0; i < C_end; i++) {
-        //     ui v = SC[i];
-        //     // if(degree[v] + K >= C_end) continue;
-        //     if(degree_in_S[v] < min_degree_in_S) {
-        //         u = v;
-        //         if(degree[v] + K >= C_end) {
-        //             min_degree_in_S = degree_in_S[v];
-        //         }
-        //     }
-        // }
-        // assert(u != n);
-        // if(min_degree_in_S == n) {
-        //     total += 100000;
-        // }
-        // if(SC_rid[u] < S_end) {
-        //     int *t_matrix = matrix+u*n;
-        //     u = n;
-        //     ui max_degree = 0;
-        //     for(ui i = S_end; i < C_end; i++) if(!t_matrix[SC[i]]) {
-        //         if(degree[SC[i]] > max_degree) {
-        //             max_degree = degree[SC[i]];
-        //             u = SC[i];
-        //         }
-        //     }
-        // }
-        // if(u == n) u = SC[S_end];
-        // assert(u != n);
-        // return u;
+        // 找到degree_in_S最小的点
+        ui u = SC[S_end];
+        ui min_degree_in_S = degree_in_S[SC[S_end]];
+
+        for (ui i = S_end; i < C_end; i++) {
+            ui v = SC[i];
+            if (degree_in_S[v] < min_degree_in_S) {
+                u = v;
+                min_degree_in_S = degree_in_S[v];
+            }
+        }
+
+        return u;
     }
 
-    bool move_u_to_S(ui &S_end, ui &C_end, ui level, ui u)
+    bool moveu_C_to_S(ui &S_end, ui &C_end, ui level, ui u)
     {
         swap_pos(SC_rid[u], S_end++);
         assert(u == SC[S_end - 1]);
 
         ui neighbors_n = 0, nonneighbors_n = 0;
-        for (ui i = 0; i < C_end; i++)
-            if (SC[i] != u) {
-                if (matrix[u * n + SC[i]])
-                    neighbors[neighbors_n++] = SC[i];
-                else
-                    nonneighbors[nonneighbors_n++] = SC[i];
-            }
+        for (ui i = 0; i < C_end; i++) if (SC[i] != u) {
+            if (matrix[u * n + SC[i]]) neighbors[neighbors_n++] = SC[i];
+            else nonneighbors[nonneighbors_n++] = SC[i];
+        }
         assert(neighbors_n + nonneighbors_n == C_end - 1);
-        for (ui i = 0; i < neighbors_n; i++)
-            degree_in_S[neighbors[i]]++;
+        for (ui i = 0; i < neighbors_n; i++) degree_in_S[neighbors[i]]++;
 
         assert(Qv.empty());
         // reduce
         if (degree_in_S[u] + K == S_end) {
             ui i = 0;
-            while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end)
-                i++;
+            while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end) i++;
             for (; i < nonneighbors_n; i++) {
                 level_id[nonneighbors[i]] = level;
                 Qv.push(nonneighbors[i]);
@@ -380,13 +323,11 @@ private:
         }
         else {
             ui i = 0;
-            while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end)
-                i++;
-            for (; i < nonneighbors_n; i++)
-                if (degree_in_S[nonneighbors[i]] + K <= S_end) {
-                    level_id[nonneighbors[i]] = level;
-                    Qv.push(nonneighbors[i]);
-                }
+            while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end) i++;
+            for (; i < nonneighbors_n; i++) if (degree_in_S[nonneighbors[i]] + K <= S_end) {
+                level_id[nonneighbors[i]] = level;
+                Qv.push(nonneighbors[i]);
+            }
         }
 
         for (ui i = 0; i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end; i++) {
@@ -403,8 +344,7 @@ private:
         // check balance
         {
             ui i = 0;
-            while (i < neighbors_n && SC_rid[neighbors[i]] < S_end)
-                i++;
+            while (i < neighbors_n && SC_rid[neighbors[i]] < S_end) i++;
             for (; i < neighbors_n; i++) {
                 ui v = neighbors[i];
                 if (level_id[neighbors[i]] == n && !check_balance(S_end, neighbors[i])) {
@@ -422,8 +362,7 @@ private:
     {
         while (!Qv.empty()) {
             // remove u from C
-            ui u = Qv.front();
-            Qv.pop();
+            ui u = Qv.front(); Qv.pop();
             assert(level_id[u] == level);
             assert(SC[SC_rid[u]] == u);
             assert(SC_rid[u] >= S_end && SC_rid[u] < C_end);
@@ -434,22 +373,19 @@ private:
             bool terminate = false;
 
             ui neighbors_n = 0;
-            for (ui i = 0; i < C_end; i++)
-                if (t_matrix[SC[i]]) {
-                    ui v = SC[i];
-                    neighbors[neighbors_n++] = SC[i];
-                    degree[v]--;
-                    if (degree[v] + K <= best_solution_size) {
-                        if (i < S_end)
-                            terminate = true;
-                        else if (level_id[v] == n) {
-                            level_id[v] = level;
-                            Qv.push(v);
-                        }
+            for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) {
+                ui v = SC[i];
+                neighbors[neighbors_n++] = SC[i];
+                degree[v]--;
+                if (degree[v] + K <= best_solution_size) {
+                    if (i < S_end) terminate = true;
+                    else if (level_id[v] == n) {
+                        level_id[v] = level;
+                        Qv.push(v);
                     }
                 }
-            if (terminate)
-                return true;
+            }
+            if (terminate) return true;
         }
         return false;
     }
@@ -475,7 +411,7 @@ private:
     }
 
     // u: S->C
-    void move_u_to_C(ui &S_end, ui C_end, ui level)
+    void moveu_S_to_C(ui &S_end, ui C_end, ui level)
     {
         assert(S_end);
         ui u = SC[--S_end];
@@ -486,7 +422,7 @@ private:
                 degree_in_S[SC[i]]--;
     }
 
-    bool collect_removable_vertices(ui S_end, ui &C_end, ui level)
+    bool reduce_SC_based_lb(ui S_end, ui &C_end, ui level)
     {
         assert(Qv.empty());
         for (ui i = 0; i < S_end; i++)
@@ -500,7 +436,7 @@ private:
         return remove_vertices(S_end, C_end, level);
     }
 
-    bool remove_u_from_C(ui S_end, ui &C_end, ui u, ui level)
+    bool moveu_C_to_X(ui S_end, ui &C_end, ui u, ui level)
     {
         // assert(Qv.empty());
         // if (u != SC[S_end]) return false;
@@ -667,7 +603,7 @@ private:
         }
         printf("S_end = %d, pi0 = %d\n", S_end, pi0);
         ub = S_end + pi0 + ub;
-        printf("S_end = %u, C_end = %u, ub = %u, kplex = %u, total = %d\n", S_end, C_end, ub, best_solution_size, total);
+
         assert(ub <= C_end);
         return ub;
     }
@@ -703,7 +639,7 @@ private:
     bool check_balance(ui S_end, ui u)
     {
         ui neighbors_n = 0;
-        ui *nei = vis;
+        ui *nei = new ui[n];
         int *t_matrix = matrix + u * n;
         for (ui i = 0; i < S_end; i++)
             if (t_matrix[SC[i]])
@@ -715,9 +651,12 @@ private:
                     continue;
                 ui tri = matrix[v * n + w] + t_matrix[v] + t_matrix[w];
                 assert(tri == 3 || tri == 1 || tri == -1 || tri == -3);
-                if (tri == 1 || tri == -3)
+                if (tri == 1 || tri == -3) {
+                    delete[] nei;
                     return false;
+                }
             }
+        delete[] nei;
         return true;
     }
 };
@@ -936,7 +875,7 @@ private:
 //             must_choose = true;
 //         }
 //         else {
-//             u = choose_branch_vertex(S_end, C_end);
+//             u = choose_branch_vertex_with_min_degree(S_end, C_end);
 //         }
 //         assert(u != n);
 //         assert(SC[SC_rid[u]] == u && SC_rid[u] >= S_end && SC_rid[u] < C_end);
@@ -944,10 +883,10 @@ private:
 //         assert(check_balance(S_end, u));
 
 //         // the first branch includes u into S
-//         bool pruned = move_u_to_S(S_end, C_end, level, u);
+//         bool pruned = moveu_C_to_S(S_end, C_end, level, u);
 //         if (!pruned) kplex_search(S_end, C_end, level + 1, -1);
 //         restore_C(S_end, C_end, old_C_end, level);
-//         move_u_to_C(S_end, C_end, level);
+//         moveu_S_to_C(S_end, C_end, level);
 //         assert(C_end == old_C_end);
 //         assert(Qv.empty());
 //         assert(u == SC[S_end]);
@@ -959,10 +898,10 @@ private:
 //             if (C_end <= best_solution_size) return;
 //             ub = upper_bound(S_end, C_end);
 //             if(ub <= best_solution_size) return;
-//             pruned = collect_removable_vertices(S_end, C_end, level);
+//             pruned = reduce_SC_based_lb(S_end, C_end, level);
 //         }
 
-//         if (!pruned) pruned = remove_u_from_C(S_end, C_end, u, level);
+//         if (!pruned) pruned = moveu_C_to_X(S_end, C_end, u, level);
 //         if (!pruned) {
 // #ifndef NDEBUG
 //             for (ui i = 0; i < C_end; i++)
@@ -979,7 +918,7 @@ private:
 //         restore_C(S_end, C_end, old_C_end, level);
 //     }
 
-//     ui choose_branch_vertex(ui S_end, ui C_end)
+//     ui choose_branch_vertex_with_min_degree(ui S_end, ui C_end)
 //     {
 //         return SC[S_end];
 //         // ui u = n, min_degree_in_S = n;
@@ -1013,7 +952,7 @@ private:
 //         // return u;
 //     }
 
-//     bool move_u_to_S(ui& S_end, ui& C_end, ui level, ui u)
+//     bool moveu_C_to_S(ui& S_end, ui& C_end, ui level, ui u)
 //     {
 //         swap_pos(SC_rid[u], S_end++);
 //         assert(u == SC[S_end - 1]);
@@ -1122,7 +1061,7 @@ private:
 //     }
 
 //     // u: S->C
-//     void move_u_to_C(ui& S_end, ui C_end, ui level)
+//     void moveu_S_to_C(ui& S_end, ui C_end, ui level)
 //     {
 //         assert(S_end);
 //         ui u = SC[--S_end];
@@ -1131,7 +1070,7 @@ private:
 //         for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) degree_in_S[SC[i]]--;
 //     }
 
-//     bool collect_removable_vertices(ui S_end, ui& C_end, ui level)
+//     bool reduce_SC_based_lb(ui S_end, ui& C_end, ui level)
 //     {
 //         assert(Qv.empty());
 //         for (ui i = 0; i < S_end; i++) if (degree[SC[i]] + K <= best_solution_size) return true;
@@ -1142,7 +1081,7 @@ private:
 //         return remove_vertices(S_end, C_end, level);
 //     }
 
-//     bool remove_u_from_C(ui S_end, ui& C_end, ui u, ui level)
+//     bool moveu_C_to_X(ui S_end, ui& C_end, ui u, ui level)
 //     {
 //         // assert(Qv.empty());
 //         // if (u != SC[S_end]) return false;

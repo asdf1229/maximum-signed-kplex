@@ -1,7 +1,7 @@
 #ifndef _UTILITY_H_
 #define _UTILITY_H_
 
-// #define NDEBUG
+#define NDEBUG
 // #define NPRINT
 #include <bits/stdc++.h>
 using namespace std;
@@ -23,16 +23,14 @@ static string integer_to_string(long long number)
     std::vector<ui> sequence;
     if (number == 0)
         sequence.push_back(0);
-    while (number > 0)
-    {
+    while (number > 0) {
         sequence.push_back(number % 1000);
         number /= 1000;
     }
 
     char buf[5];
     std::string res;
-    for (unsigned int i = sequence.size(); i > 0; i--)
-    {
+    for (unsigned int i = sequence.size(); i > 0; i--) {
         if (i == sequence.size())
             sprintf(buf, "%u", sequence[i - 1]);
         else
