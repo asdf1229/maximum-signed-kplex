@@ -613,22 +613,26 @@ void Graph::get_tricnt()
     }
 }
 /**
-  * @brief 提取顶点u的2-hop子图,并进行剪枝
-  *
-  * @param u 需要提取子图的中心顶点
-  * @param vp 用于存储子图边的vector
-  * @param ids_n 返回子图的顶点数
-  * @param sub_v_rid 顶点映射表，维护原图顶点到子图顶点的映射
-  * @return ui 返回中心顶点的映射后的新ID
-  *
-  * @details
-  * 中心顶点标记为1，邻居标记为2，2-hop邻居标记为3
-  * 该函数提取以u为中心的2-hop子图,并进行剪枝优化:
-  * 1. 首先提取u的直接邻居
-  * 2. 计算邻居节点在子图中的度数,删除度数过小的节点
-  * 3. 提取2-hop邻居并继续剪枝
-  * 4. 重新编号并构建子图的边集
-  */
+ * @brief 提取并剪枝顶点u的2-hop子图
+ * 
+ * @param u 中心顶点
+ * @param vp 存储子图边的容器
+ * @param ids_n 子图的顶点数量
+ * @param ids 存储子图顶点ID的数组
+ * @param rid 顶点重编号映射数组
+ * @param Q 用于BFS的队列数组
+ * @param nei_degree 存储顶点在子图中度数的数组
+ * @param mark 顶点标记数组(1:中心顶点, 2:直接邻居, 3:2-hop邻居)
+ * @return ui 返回中心顶点在子图中的新ID
+ * 
+ * @details
+ * 该函数执行以下步骤:
+ * 1. 将中心顶点u加入子图并标记为1
+ * 2. 添加u的直接邻居并标记为2
+ * 3. 计算邻居节点度数,剪枝度数不满足条件的节点
+ * 4. 添加2-hop邻居并标记为3,继续剪枝
+ * 5. 对保留的顶点重新编号,构建子图的边集
+ */
 ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark)
 {
 #ifndef NDEBUG
