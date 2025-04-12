@@ -20,18 +20,9 @@ private:
     ept *pstart; // start of edge number of a point
     ept *pend;   // end of edge number of a point
     ui *edges;   // edges
-
-    ept *p_pstart; // start of positive edge number of a point
-    ept *p_pend;   // end of positive edge number of a point
-    ui *p_edges;   // positive edges
-
-    ept *n_pstart; // start of negative edge number of a point
-    ept *n_pend;   // end of negative edge number of a point
-    ui *n_edges;   // negative edges
+    int *esign;
 
     ui *degree;   // degree of a point
-    ui *p_degree; // positive degree of a point
-    ui *n_degree; // negative degree of a point
     ept *tri_cnt;
 
     ui *v_rid;
@@ -107,9 +98,17 @@ private:
      * @param u 中心顶点ID
      * @param vp 边集合的引用
      * @param ids_n 子图顶点数量
-     * @return 子图的规模
+     * @return 子图中u的id
      */
-    ui extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark);
+    ui extract_subgraph_two_hop(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark);
+    /**
+     * @brief 提取以顶点u为中心的k-plex子图
+     * @param u 中心顶点ID
+     * @param vp 边集合的引用
+     * @param ids_n 子图顶点数量
+     * @return 子图中u的id
+     */
+    ui extract_subgraph_one_hop(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark);
     /**
       * @brief 提取顶点u的2-hop子图,不进行剪枝
       *

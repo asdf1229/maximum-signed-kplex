@@ -20,10 +20,9 @@ Graph::Graph(const int _k)
     kplex.clear();
     n = m = pm = nm = 0;
     lb = ub = 0;
-
-    edges = p_edges = n_edges = nullptr;
-    pstart = p_pstart = n_pstart = nullptr;
-    pend = p_pend = n_pend = nullptr;
+    edges = nullptr;
+    pstart = pend = nullptr;
+    esign = nullptr;
     degree = v_rid = vis = nullptr;
     tri_cnt = nullptr;
 }
@@ -35,25 +34,18 @@ Graph::~Graph()
     delete[] pstart;
     delete[] pend;
     delete[] edges;
-    delete[] p_pstart;
-    delete[] p_pend;
-    delete[] p_edges;
-    delete[] n_pstart;
-    delete[] n_pend;
-    delete[] n_edges;
+    delete[] esign;
     delete[] degree;
     delete[] tri_cnt;
     delete[] v_rid;
     delete[] vis;
 
+    edges = nullptr;
     pstart = pend = nullptr;
-    edges = p_edges = n_edges = nullptr;
-    p_pstart = p_pend = nullptr;
-    n_pstart = n_pend = nullptr;
+    esign = nullptr;
     degree = v_rid = vis = nullptr;
     tri_cnt = nullptr;
 }
-
 /**
  * @brief 检查给定的顶点集是否构成一个有效的带符号k-plex
  *
@@ -80,23 +72,13 @@ void Graph::check_is_kplex(ui ids_n, ui *ids)
         ui u = ids[i];
         ui ids_u = mark[u] - 1;
 
-        // 处理正边
-        for (ept j = p_pstart[u]; j < p_pend[u]; j++) {
-            ui v = p_edges[j];
+        for (ept j = pstart[u]; j < pend[u]; j++) {
+            ui v = edges[j];
             if (mark[v]) {
                 ui ids_v = mark[v] - 1;
+                int sign_uv = esign[j];
                 deg[ids_u]++; deg[ids_v]++;
-                mat[ids_u * ids_n + ids_v] = mat[ids_v * ids_n + ids_u] = 1;
-            }
-        }
-
-        // 处理负边
-        for (ept j = n_pstart[u]; j < n_pend[u]; j++) {
-            ui v = n_edges[j];
-            if (mark[v]) {
-                ui ids_v = mark[v] - 1;
-                deg[ids_u]++; deg[ids_v]++;
-                mat[ids_u * ids_n + ids_v] = mat[ids_v * ids_n + ids_u] = -1;
+                mat[ids_u * ids_n + ids_v] = mat[ids_v * ids_n + ids_u] = sign_uv;
             }
         }
     }
@@ -165,14 +147,13 @@ void Graph::load_graph(string input_graph)
         s_G[v].insert(make_pair(u, flag));
     }
 
-    m = pm = nm = 0;
+    m = 0;
+    ept pm = 0, nm = 0;
     for (ui i = 0; i < n; i++) {
         for (auto e : s_G[i]) {
             ++m;
-            if (e.second == 1)
-                ++pm;
-            else
-                ++nm;
+            if (e.second == 1) ++pm;
+            else ++nm;
         }
     }
     assert(m == pm + nm);
@@ -181,49 +162,45 @@ void Graph::load_graph(string input_graph)
     input_file.close();
 
     edges = new ui[m];
-    p_edges = new ui[m];
-    n_edges = new ui[m];
-    tri_cnt = new ept[m];
     pstart = new ept[n + 1];
-    p_pstart = new ept[n + 1];
-    n_pstart = new ept[n + 1];
     pend = new ept[n];
-    p_pend = new ept[n];
-    n_pend = new ept[n];
+    esign = new int[m];
+    tri_cnt = new ept[m];
     degree = new ui[n];
     v_rid = new ui[n];
     vis = new ui[n];
 
     // construct edges
-    ui idx = 0, p_idx = 0, n_idx = 0;
+    ui idx = 0;
     for (ui u = 0; u < n; u++) {
         pstart[u] = idx;
-        p_pstart[u] = p_idx;
-        n_pstart[u] = n_idx;
         for (auto e : s_G[u]) {
-            edges[idx++] = e.first;
-            if (e.second == 1)
-                p_edges[p_idx++] = e.first;
-            if (e.second == -1)
-                n_edges[n_idx++] = e.first;
+            edges[idx] = e.first;
+            esign[idx] = e.second;
+            idx++;
         }
         pend[u] = idx;
-        p_pend[u] = p_idx;
-        n_pend[u] = n_idx;
     }
     pstart[n] = idx;
-    p_pstart[n] = p_idx;
-    n_pstart[n] = n_idx;
-    pm = p_idx, nm = n_idx;
+    // 统计正负边数量
+    pm = nm = 0;
+    for (ui i = 0; i < m; i++) {
+        if (esign[i] == 1) pm++;
+        else nm++;
+    }
     assert(idx == m && m == pm + nm);
     assert(m % 2 == 0 && pm % 2 == 0 && nm % 2 == 0);
-
     delete[] s_G;
 
+    // 对每个顶点的邻接表按照边和符号一起排序
     for (ui i = 0; i < n; i++) {
-        sort(edges + pstart[i], edges + pend[i]);
-        sort(p_edges + p_pstart[i], p_edges + p_pend[i]);
-        sort(n_edges + n_pstart[i], n_edges + n_pend[i]);
+        vector<pair<ui, int>> temp;
+        for (ept j = pstart[i]; j < pend[i]; j++) temp.push_back({ edges[j], esign[j] });
+        sort(temp.begin(), temp.end());
+        for (ept j = pstart[i]; j < pend[i]; j++) {
+            edges[j] = temp[j - pstart[i]].first;
+            esign[j] = temp[j - pstart[i]].second;
+        }
     }
 
     for (ui i = 0; i < n; i++) v_rid[i] = i;
@@ -257,210 +234,76 @@ void Graph::heu_signed_kplex()
     ui *dorder = new ui[n];
     ub = degen(dorder);
 
-    ui *pn = new ui[n];
-    ui *in_pn = new ui[n];
-    ui *pn_rid = new ui[n];
-    ui *heu_kplex = new ui[n];
-    ui p_end = 0, n_end = 0, heu_n = 0;
-    ui *degree_in_S = new ui[n];
-    ui *neighbor = new ui[n];
-    memset(in_pn, 0, sizeof(ui) * n);
-    memset(neighbor, 0, sizeof(ui) * n);
-    memset(degree_in_S, 0, sizeof(ui) * n);
-    memset(vis, 0, sizeof(ui) * n);
+    SIGNED_KPLEX *signed_kplex_solver = new SIGNED_KPLEX();
+    signed_kplex_solver->allocateMemory(n, m);
 
-    ui num = min(n, (ui)10);
-    for (ui i = 1; i <= num; i++) {
-        // ListLinearHeap* heap = new ListLinearHeap(n, n - 1);
-        ui u = dorder[n - i];
-        p_end = n_end = 0;
+    vector<Edge> vp;
+    vp.reserve(m);
 
-        pn_rid[u] = p_end;
-        pn[p_end++] = u;
-        vis[u] = 3;
-        heu_n = 0;
-        heu_kplex[heu_n++] = u;
+    ui *ids = new ui[n];
+    ui *mark = new ui[n];
+    memset(mark, 0, sizeof(ui) * n);
+    ui *Q = new ui[n];
+    ui *nei_degree = new ui[n];
+    ui *rid = new ui[n];
 
-        for (ept j = p_pstart[u]; j < p_pend[u]; j++) {
-            ui v = p_edges[j];
-            in_pn[v] = u;
-            degree_in_S[p_end] = 1;
-            pn_rid[v] = p_end;
-            pn[p_end++] = v;
-            vis[v] = 1;
-        }
-        n_end = p_end;
-        for (ept j = n_pstart[u]; j < n_pend[u]; j++) {
-            ui v = n_edges[j];
-            in_pn[v] = u;
-            vis[v] = 2;
-            degree_in_S[n_end] = 1;
-            pn_rid[v] = n_end;
-            pn[n_end++] = v;
-        }
-        printf("p_end = %d, n_end = %d, heu_n = %d\n", p_end, n_end, heu_n);
-        while (1) {
-#ifndef NDEBUG
-            for (ui j = p_end; j < n_end; j++) {
-                if (vis[pn[j]] == 3) {
-                    assert(degree_in_S[j] + K >= heu_n + 1);
-                }
-            }
-            for (ui j = p_end; j < n_end; j++) {
-                if (vis[pn[j]] == 1 || vis[pn[j]] == 2) {
-                    assert(degree_in_S[j] + K >= heu_n + 1);
-                }
-            }
-            // ui tot = 0;
-            // for (ui j = 0; j < n_end; j++) {
-            //     if (vis[pn[j]] == 1 || vis[pn[j]] == 2) tot++;
-            // }
-            // printf("tot = %d\n", tot);
+    // 1-hop heuristic
+    ui cur = 0;
+    ui num1 = min(n, (ui)10);
+    for (ui i = 1; i <= num1; i++) {
+        ui u = dorder[n - (++cur)];
+        if (degree[u] + 1 <= lb) continue;
 
-            for (ui j = 0; j < n_end; j++)
-                assert(neighbor[j] == 0);
-            for (ui j = 0; j < n_end; j++)
-                assert(pn_rid[pn[j]] == j);
-#endif
+        // get g
+        ui s_n = 0;
+        ui rid_u = 0;
+        extract_subgraph_one_hop(u, vp, s_n, ids, rid, Q, nei_degree, mark);
 
-            ui nxt_u = n;
-            for (ui j = 0; j < n_end; j++) {
-                if (vis[pn[j]] == 1 || vis[pn[j]] == 2) {
-                    if (nxt_u == n)
-                        nxt_u = j;
-                    else if (degree_in_S[nxt_u] < degree_in_S[j])
-                        nxt_u = j;
-                }
-            }
-            if (nxt_u == n)
-                break;
-
-            nxt_u = pn[nxt_u];
-            assert(vis[nxt_u] == 1 || vis[nxt_u] == 2);
-            ui u_pn = vis[nxt_u];
-            vis[nxt_u] = 3;
-            // printf("heu_n = %d\n", heu_n);
-            heu_kplex[heu_n++] = nxt_u;
-
-            for (ept j = p_pstart[nxt_u]; j < p_pend[nxt_u]; j++) {
-                ui v = p_edges[j];
-                if (vis[v] == 1 || vis[v] == 2) {
-                    if (in_pn[v] == u) {
-                        assert(pn_rid[v] >= 0 && pn_rid[v] < n_end);
-                        neighbor[pn_rid[v]] = 1;
-                        if ((vis[v] == 1 && u_pn == 1) || (vis[v] == 2 && u_pn == 2)) {
-                            degree_in_S[pn_rid[v]]++;
-                        }
-                        else {
-                            vis[v] = 0;
-                        }
-                    }
-                }
-                else if (vis[v] == 3) {
-                    if (in_pn[v] == u) {
-                        assert(pn_rid[v] >= 0 && pn_rid[v] < n_end);
-                        neighbor[pn_rid[v]] = 1;
-                        degree_in_S[pn_rid[v]]++;
-                    }
-                }
-            }
-            for (ept j = n_pstart[nxt_u]; j < n_pend[nxt_u]; j++) {
-                ui v = n_edges[j];
-                if (vis[v] == 1 || vis[v] == 2 && pn_rid[v] < n_end) {
-                    if (in_pn[v] == u) {
-                        assert(pn_rid[v] >= 0 && pn_rid[v] < n_end);
-                        neighbor[pn_rid[v]] = 1;
-                        if ((vis[v] == 1 && u_pn == 2) || (vis[v] == 2 && u_pn == 1)) {
-                            degree_in_S[pn_rid[v]]++;
-                        }
-                        else {
-                            vis[v] = 0;
-                        }
-                    }
-                }
-                else if (vis[v] == 3) {
-                    if (in_pn[v] == u) {
-                        assert(pn_rid[v] >= 0 && pn_rid[v] < n_end);
-                        neighbor[pn_rid[v]] = 1;
-                        degree_in_S[pn_rid[v]]++;
-                    }
-                }
-            }
-
-            bool ub_mark = false;
-            for (ui j = 0; j < p_end; j++) {
-                if (neighbor[j] == 0) {
-                    if (vis[pn[j]] == 3) {
-                        if (degree_in_S[j] + K <= heu_n) {
-                            ub_mark = true;
-                        }
-                    }
-                }
-                neighbor[j] = 0;
-            }
-            for (ui j = p_end; j < n_end; j++) {
-                if (neighbor[j] == 0) {
-                    if (vis[pn[j]] == 1 || vis[pn[j]] == 2) {
-                        if (degree_in_S[j] + K <= heu_n + 1)
-                            vis[pn[j]] = 0;
-                    }
-                }
-                neighbor[j] = 0;
-            }
-            if (ub_mark)
-                break;
+        if (s_n > lb) {
+            signed_kplex_solver->load_graph(s_n, vp);
+            signed_kplex_solver->heu_kPlex(K, kplex, rid_u);
         }
 
-#ifndef NDEBUG
-        ui vis1Num = 0, vis2Num = 0, vis3Num = 0;
-        for (ui j = 0; j < n; j++) {
-            if (vis[j] == 1)
-                vis1Num++;
-            if (vis[j] == 2)
-                vis2Num++;
-            if (vis[j] == 3)
-                vis3Num++;
-        }
-        printf("vis1 = %d, vis2 = %d, vis3 = %d\n", vis1Num, vis2Num, vis3Num);
-#endif
-
-        printf("heu_n = %d\n", heu_n);
-
-        // ui addNum = min(n, (ui)100);
-        // // Add as many nodes as possible
-        // for (ui j = 1; j <= addNum; j++) {
-        //     ui v = dorder[n - j];
-        //     if (heu_add_check(heu_n, heu_kplex, v)) {
-        //         heu_kplex[heu_n++] = v;
-        //     }
-        // }
-        // printf("heu_n(add nodes) = %d\n", heu_n);
-
-        if (heu_n > kplex.size()) {
-            kplex.clear();
-            for (ui j = 0; j < heu_n; j++)
-                kplex.push_back(heu_kplex[j]);
+        if (kplex.size() > lb) {
+            for (auto &v : kplex) v = v_rid[ids[v]];
+            lb = kplex.size();
+            CTCP(lb + 1 - K, lb + 1 - 2 * K);
+            ub = min(ub, (int)degen(dorder));
+            cur = 0;
         }
     }
 
-    if (lb < kplex.size()) {
-        lb = kplex.size();
-        CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    // 2-hop heuristic
+    ui num2 = min(n, (ui)10);
+    for (ui i = 1; i <= num2; i++) {
+        ui u = dorder[n - (++cur)];
+        if (degree[u] + K <= lb) continue;
+
+        // get g
+        ui s_n = 0;
+        ui rid_u = 0;
+        extract_subgraph_two_hop(u, vp, s_n, ids, rid, Q, nei_degree, mark);
+        if (s_n > lb) {
+            signed_kplex_solver->load_graph(s_n, vp);
+            signed_kplex_solver->heu_kPlex(K, kplex, rid_u);
+        }
+
+        if (kplex.size() > lb) {
+            for (auto &v : kplex) v = v_rid[ids[v]];
+            lb = kplex.size();
+            CTCP(lb + 1 - K, lb + 1 - 2 * K);
+            ub = min(ub, (int)degen(dorder));
+            cur = 0;
+        }
     }
 
-    delete[] dorder;
-    delete[] pn;
-    delete[] in_pn;
-    delete[] pn_rid;
-    delete[] heu_kplex;
-    delete[] degree_in_S;
-    delete[] neighbor;
+    delete signed_kplex_solver;
+
     HEU_TIME = t.elapsed();
     TOT_TIME += HEU_TIME;
 #ifndef NPRINT
     cout << "\t -------------------heu_find_kplex-------------------" << endl;
     cout << "\t heu_kplex_size = " << kplex.size() << ",\t time cost = " << integer_to_string(t.elapsed()) << endl;
-    cout << "\t after graph reduction, G: n = " << n / 2 << ", m = " << m / 2 << ", pm = " << pm / 2 << ", nm = " << nm << endl;
 #endif
 }
 /**
@@ -498,13 +341,7 @@ void Graph::find_signed_kplex()
         ui s_n = 0;
         vp.clear();
         ui rid_u = 0;
-        // rid_u = extract_graph_without_prune(u, vp, s_n, ids);
-        extract_subgraph(u, vp, s_n, ids, rid, Q, nei_degree, mark);
-
-        // //输出vp和s_n的大小信息
-        // printf("vp size = %d, s_n = %d\n", vp.size(), s_n);
-        // for (auto &v : vp)
-        //     printf("(%d, %d, %d)\n", v.a, v.b, v.c);
+        extract_subgraph_two_hop(u, vp, s_n, ids, rid, Q, nei_degree, mark);
 
         if (s_n > lb) {
             // bnb
@@ -517,8 +354,7 @@ void Graph::find_signed_kplex()
 
         if (kplex.size() > lb) {
             lb = kplex.size();
-            for (auto &v : kplex)
-                v = v_rid[ids[v]];
+            for (auto &v : kplex) v = v_rid[ids[v]];
         }
 
         if (s_n == n) break;
@@ -584,6 +420,14 @@ void Graph::get_tricnt()
                 for (ept j = pstart[v]; j < pend[v]; j++) {
                     ui w = edges[j];
                     if (mark[w] && v < w) {
+                        // // 判断是否是平衡三角形
+                        // int sign_uv = esign[i];
+                        // int sign_vw = esign[j];
+                        // int sign_uw = esign[mark[w] - 1];
+                        // int tri_cn = sign_uv + sign_vw + sign_uw;
+                        // assert(tri_cn == 3 || tri_cn == 1 || tri_cn == -1 || tri_cn == -3);
+                        // if (tri_cn == 1 || tri_cn == -3) continue;
+
                         ept id_uv = i;
                         ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
                         ept id_vw = j;
@@ -614,7 +458,7 @@ void Graph::get_tricnt()
 }
 /**
  * @brief 提取并剪枝顶点u的2-hop子图
- * 
+ *
  * @param u 中心顶点
  * @param vp 存储子图边的容器
  * @param ids_n 子图的顶点数量
@@ -624,7 +468,7 @@ void Graph::get_tricnt()
  * @param nei_degree 存储顶点在子图中度数的数组
  * @param mark 顶点标记数组(1:中心顶点, 2:直接邻居, 3:2-hop邻居)
  * @return ui 返回中心顶点在子图中的新ID
- * 
+ *
  * @details
  * 该函数执行以下步骤:
  * 1. 将中心顶点u加入子图并标记为1
@@ -633,7 +477,7 @@ void Graph::get_tricnt()
  * 4. 添加2-hop邻居并标记为3,继续剪枝
  * 5. 对保留的顶点重新编号,构建子图的边集
  */
-ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark)
+ui Graph::extract_subgraph_two_hop(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark)
 {
 #ifndef NDEBUG
     for (ui i = 0; i < n; i++) assert(mark[i] == 0);
@@ -702,6 +546,7 @@ ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, 
     assert(new_size + Q_n == nei_size);
     ui old_nei_size = nei_size;
     nei_size = new_size;
+
     // Any two non-adjacent vertices must have at least l−2k+2 common neighbors
     for (ui i = old_nei_size; i < ids_n; i++) {
         if (nei_degree[ids[i]] + 2 * K <= kplex.size() + 2) mark[ids[i]] = 0;
@@ -725,17 +570,86 @@ ui Graph::extract_subgraph(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, 
 
     for (ui i = 0; i < ids_n; i++) {
         u = ids[i];
-        for (ept i = p_pstart[u]; i < p_pend[u]; i++) {
-            ui v = p_edges[i];
-            if (mark[v] && u < v) {
-                vp.push_back(Edge(rid[u], rid[v], 1));
+        for (ept j = pstart[u]; j < pend[u]; j++) {
+            ui v = edges[j];
+            if (mark[v] && u < v) vp.push_back(Edge(rid[u], rid[v], esign[j]));
+        }
+    }
+
+    for (ui i = 0; i < ids_n; i++) mark[ids[i]] = 0;
+#ifndef NDEBUG
+    for (ui i = 0; i < n; i++) assert(mark[i] == 0);
+#endif
+    return 0;
+}
+/**
+ * @brief 提取并剪枝顶点u的1-hop子图
+ *
+ */
+ui Graph::extract_subgraph_one_hop(ui u, vector<Edge> &vp, ui &ids_n, ui *ids, ui *rid, ui *Q, ui *nei_degree, ui *mark)
+{
+#ifndef NDEBUG
+    for (ui i = 0; i < n; i++) assert(mark[i] == 0);
+#endif
+    vp.clear();
+
+    // 添加中心顶点u
+    ids_n = 0;
+    ids[ids_n++] = u;
+    mark[u] = 1;
+
+    // 处理u的直接邻居
+    for (ept i = pstart[u]; i < pend[u]; i++) {
+        ui v = edges[i];
+        mark[v] = 2;
+        ids[ids_n++] = v;
+    }
+
+    // Any two adjacent vertices must have at least l−2k common neighbors
+    ui Q_n = 0;
+    for (ui i = 1; i < ids_n; i++) {
+        ui v = ids[i];
+        nei_degree[v] = 0;
+        for (ept j = pstart[v]; j < pend[v]; j++) if (mark[edges[j]] == 2) ++nei_degree[v];
+        if (nei_degree[v] + K <= kplex.size()) Q[Q_n++] = v;
+    }
+    for (ui i = 0; i < Q_n; i++) {
+        ui v = Q[i];
+        mark[v] = 10; // deleted
+        for (ept j = pstart[v]; j < pend[v]; j++) if (mark[edges[j]] == 2) {
+            if ((nei_degree[edges[j]]--) + K == kplex.size() + 1) {
+                Q[Q_n++] = edges[j];
             }
         }
-        for (ept i = n_pstart[u]; i < n_pend[u]; i++) {
-            ui v = n_edges[i];
-            if (mark[v] && u < v) {
-                vp.push_back(Edge(rid[u], rid[v], -1));
-            }
+    }
+    assert(Q_n <= ids_n - 1);
+
+    // 中心顶点的上界
+    if (ids_n - 1 - Q_n + K <= kplex.size()) {
+        for (ui i = 0; i < ids_n; i++) mark[ids[i]] = 0;
+        ids_n = 0;
+        return 0;
+    }
+
+    ui nei_size = ids_n;
+    ui new_size = 1;
+    for (ui i = 1; i < nei_size; i++) {
+        if (mark[ids[i]] == 10) mark[ids[i]] = 0;
+        else ids[new_size++] = ids[i];
+    }
+    ids_n = new_size;
+
+    // 重新编号
+    for (ui i = 0; i < ids_n; i++) {
+        assert(mark[ids[i]]);
+        rid[ids[i]] = i;
+    }
+
+    for (ui i = 0; i < ids_n; i++) {
+        u = ids[i];
+        for (ept j = pstart[u]; j < pend[u]; j++) {
+            ui v = edges[j];
+            if (mark[v] && u < v) vp.push_back(Edge(rid[u], rid[v], esign[j]));
         }
     }
 
@@ -786,21 +700,9 @@ ui Graph::extract_graph_without_prune(ui u, vector<Edge> &vp, ui &ids_n, ui *ids
     printf("cnt = %d\n", cnt);
 
     for (ui u = 0; u < n; u++) if (v_sel[u]) {
-        for (ept i = p_pstart[u]; i < p_pend[u]; i++) {
-            ui v = p_edges[i];
-            if (v_sel[v]) {
-                if (u < v) {
-                    vp.push_back(Edge(rid[u], rid[v], 1));
-                }
-            }
-        }
-        for (ept i = n_pstart[u]; i < n_pend[u]; i++) {
-            ui v = n_edges[i];
-            if (v_sel[v]) {
-                if (u < v) {
-                    vp.push_back(Edge(rid[u], rid[v], -1));
-                }
-            }
+        for (ept j = pstart[u]; j < pend[u]; j++) {
+            ui v = edges[j];
+            if (v_sel[v] && u < v) vp.push_back(Edge(rid[u], rid[v], esign[j]));
         }
     }
 
@@ -879,7 +781,6 @@ ui Graph::degen(ui *dorder)
 
     return UB;
 }
-
 /**
  * @brief 重建图结构
  *
@@ -902,49 +803,33 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
     }
 
     new_n = 0;
-    ept pos = 0, p_pos = 0, n_pos = 0;
-    pstart[0] = p_pstart[0] = n_pstart[0] = 0;
+    ept pos = 0;
+    pstart[0] = 0;
     for (ui u = 0; u < n; u++) if (!v_del[u]) {
-        ept p_pointer = p_pstart[u], n_pointer = n_pstart[u];
         for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) {
             ui v = edges[i];
             if (!v_del[v]) {
-                edges[pos++] = rid[v];
-
-                // 寻找边(u,v)在正负边表中的位置
-                while (p_pointer < p_pend[u] && p_edges[p_pointer] < v) p_pointer++;
-                while (n_pointer < n_pend[u] && n_edges[n_pointer] < v) n_pointer++;
-
-                if (p_pointer < p_pend[u] && p_edges[p_pointer] == v) {
-                    p_edges[p_pos++] = rid[v];
-                    p_pointer++;
-                }
-                else if (n_pointer < n_pend[u] && n_edges[n_pointer] == v) {
-                    n_edges[n_pos++] = rid[v];
-                    n_pointer++;
-                }
-                else {
-                    throw std::runtime_error("rebuild_graph error");
-                }
+                edges[pos] = rid[v];
+                esign[pos] = esign[i];
+                pos++;
             }
         }
         pend[new_n] = pos;
-        p_pend[new_n] = p_pos;
-        n_pend[new_n] = n_pos;
         new_n++;
     }
 
-    assert(pos % 2 == 0 && p_pos % 2 == 0 && n_pos % 2 == 0);
+    assert(pos % 2 == 0);
     n = new_n;
     m = pos;
-    pm = p_pos;
-    nm = n_pos;
 
-    for (ui u = 1; u <= n; u++) {
-        pstart[u] = pend[u - 1];
-        p_pstart[u] = p_pend[u - 1];
-        n_pstart[u] = n_pend[u - 1];
+    // 统计正负边数量
+    pm = nm = 0;
+    for (ui i = 0; i < m; i++) {
+        if (esign[i] == 1) pm++;
+        else nm++;
     }
+
+    for (ui u = 1; u <= n; u++)  pstart[u] = pend[u - 1];
 
     delete[] rid;
 
@@ -1078,7 +963,7 @@ void Graph::CTCP(int tv, int te, int del_v)
     }
 #endif
     CTCP_TIME += t.elapsed();
-#ifndef NDEBUG
+    // #ifndef NDEBUG
     cout << "\t CTCP, T : " << integer_to_string(t.elapsed()) << ",\t n = " << n << ", m = " << m / 2 << endl;
-#endif
+    // #endif
 }

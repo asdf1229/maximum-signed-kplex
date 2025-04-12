@@ -168,6 +168,100 @@ public:
         }
     }
 
+    void heu_kPlex(ui K_, vector<ui> &kplex, int choose_u)
+    {
+        K = K_;
+        best_solution_size = kplex.size();
+#ifndef NDEBUG
+        printf("heu_kplex: n = %u\n", n);
+#endif
+
+        // 对于每一个不平衡三角形，选择度数最小的点，将其删去
+        memset(vis, 0, sizeof(ui) * n);
+        for (ui i = 0; i < n; i++) if (!vis[i]) {
+            for (ui j = i + 1; j < n; j++) if (!vis[j]) {
+                if (!matrix[i * n + j]) continue;
+                for (ui k = j + 1; k < n; k++) if (!vis[k]) {
+                    if (!matrix[i * n + k] || !matrix[j * n + k]) continue;
+                    int tri_sum = matrix[i * n + j] + matrix[j * n + k] + matrix[i * n + k];
+                    if (tri_sum == 1 || tri_sum == -3) {
+                        ui min_degree_vertex = i;
+                        if (i == 0) min_degree_vertex = degree[j] < degree[k] ? j : k;
+                        else {
+                            if (degree[j] < degree[min_degree_vertex]) min_degree_vertex = j;
+                            if (degree[k] < degree[min_degree_vertex]) min_degree_vertex = k;
+                        }
+                        vis[min_degree_vertex] = 1;
+                        for (ui v = 0; v < n; v++) if (matrix[min_degree_vertex * n + v]) degree[v]--;
+                    }
+                }
+            }
+        }
+        assert(choose_u == 0);
+        assert(vis[choose_u] == 0);
+
+        vector<ui> mapping;
+        ui N = n;
+        for (ui i = 0; i < N; i++) if (!vis[i]) mapping.push_back(i);
+        n = mapping.size();
+
+        // 重新计算matrix
+        if (n < N) {
+            for (ui i = 0; i < n; i++) for (ui j = i + 1; j < n; j++) matrix[i * n + j] = matrix[mapping[i] * N + mapping[j]];
+            for (ui i = 0; i < n; i++) for (ui j = i + 1; j < n; j++) matrix[j * n + i] = matrix[i * n + j];
+            for (ui i = 0; i < n; i++) matrix[i * n + i] = 0;
+            // 重新计算每个点的度数
+            for (ui i = 0; i < n; i++) {
+                vis[i] = degree[i] = 0;
+                for (ui j = 0; j < n; j++) if (matrix[i * n + j]) degree[i]++, m++;
+            }
+        }
+#ifndef NDEBUG
+        printf("after remove unbalanced triangle: n = %u, m = %d\n", n, m);
+#endif
+        // ui old_best_solution_size = best_solution_size;
+        // kPlex(K_, kplex, choose_u);
+        // if (best_solution_size > old_best_solution_size) {
+        //     for (auto &v : kplex) v = mapping[v];
+        //     printf("find a solution of size %u\n", best_solution_size);
+        // }
+        // 做无符号图的启发式kplex
+        ui *peel_sequence = neighbors;
+        ui *core = nonneighbors;
+        ui max_core = 0, UB = 0, idx = n;
+        memset(vis, 0, sizeof(ui) * n);
+        for (ui i = 0; i < n; i++) {
+            ui u, min_degree = n;
+            for (ui j = 0; j < n; j++) if (!vis[j] && degree[j] < min_degree) {
+                u = j;
+                min_degree = degree[j];
+            }
+            if (min_degree > max_core) max_core = min_degree;
+            core[u] = max_core;
+            peel_sequence[i] = u;
+            vis[u] = 1;
+
+            ui t_UB = core[u] + K;
+            if (n - i < t_UB) t_UB = n - i;
+            if (t_UB > UB) UB = t_UB;
+
+            if (idx == n && min_degree + K >= n - i) idx = i;
+
+            for (ui j = 0; j < n; j++) if (!vis[j] && matrix[u * n + j]) --degree[j];
+        }
+        if (n - idx > best_solution_size) {
+            best_solution_size = n - idx;
+            for (ui i = idx; i < n; i++) best_solution[i - idx] = mapping[peel_sequence[i]];
+            printf("Degen find a solution of size %u\n", best_solution_size);
+        }
+
+        if (best_solution_size > kplex.size()) {
+            kplex.clear();
+            for (int i = 0; i < best_solution_size; i++)
+                kplex.push_back(best_solution[i]);
+        }
+    }
+
 private:
     // init S, C
     void init(ui &S_end, ui &C_end, int choose_u, vector<ui> &pivot_set)
@@ -181,7 +275,7 @@ private:
             ui u = q.front(); q.pop();
             if (vis[u]) continue; vis[u] = 1;
             for (ui v = 0; v < n; v++) if (matrix[u * n + v]) {
-                if ((degree[v]--) + K == best_solution_size) q.push(v);
+                if ((degree[v]--) + K == best_solution_size + 1) q.push(v);
             }
         }
 
@@ -223,6 +317,7 @@ private:
 
     void kplex_search(ui S_end, ui C_end, ui level, vector<ui> pivot_set)
     {
+        // printf("S_end = %d, C_end = %d\n", S_end, C_end);
         if (S_end > best_solution_size) {
             best_solution_size = S_end;
             for (ui i = 0; i < best_solution_size; i++) best_solution[i] = SC[i];
