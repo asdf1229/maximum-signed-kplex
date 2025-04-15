@@ -229,7 +229,7 @@ void Graph::heu_signed_kplex()
 {
     Timer t;
     t.restart();
-    lb = max((int)kplex.size(), 2 * K - 1);
+    lb = max((int)kplex.size(), 2 * K - 2);
     CTCP(lb + 1 - K, lb + 1 - 2 * K);
     ui *dorder = new ui[n];
     ub = degen(dorder);
@@ -251,6 +251,7 @@ void Graph::heu_signed_kplex()
     ui cur = 0;
     ui num1 = min(n, (ui)10);
     for (ui i = 1; i <= num1; i++) {
+        if (n < cur + 1) break;
         ui u = dorder[n - (++cur)];
         if (degree[u] + 1 <= lb) continue;
 
@@ -276,6 +277,7 @@ void Graph::heu_signed_kplex()
     // 2-hop heuristic
     ui num2 = min(n, (ui)10);
     for (ui i = 1; i <= num2; i++) {
+        if (n < cur + 1) break;
         ui u = dorder[n - (++cur)];
         if (degree[u] + K <= lb) continue;
 

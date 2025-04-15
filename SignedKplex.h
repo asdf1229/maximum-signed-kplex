@@ -219,12 +219,6 @@ public:
 #ifndef NDEBUG
         printf("after remove unbalanced triangle: n = %u, m = %d\n", n, m);
 #endif
-        // ui old_best_solution_size = best_solution_size;
-        // kPlex(K_, kplex, choose_u);
-        // if (best_solution_size > old_best_solution_size) {
-        //     for (auto &v : kplex) v = mapping[v];
-        //     printf("find a solution of size %u\n", best_solution_size);
-        // }
         // 做无符号图的启发式kplex
         ui *peel_sequence = neighbors;
         ui *core = nonneighbors;
@@ -249,16 +243,61 @@ public:
 
             for (ui j = 0; j < n; j++) if (!vis[j] && matrix[u * n + j]) --degree[j];
         }
-        if (n - idx > best_solution_size) {
-            best_solution_size = n - idx;
-            for (ui i = idx; i < n; i++) best_solution[i - idx] = mapping[peel_sequence[i]];
-            printf("Degen find a solution of size %u\n", best_solution_size);
+
+
+        // 目前得到的启发式解是idx到n-1的一个后缀
+        vector<ui> heu_solution_in_map;
+        heu_solution_in_map.clear();
+        vector<ui> degree_in_heu;
+        degree_in_heu.clear();
+
+        for (ui i = idx; i < n; i++) heu_solution_in_map.push_back(peel_sequence[i]);
+        for (ui i = 0; i < heu_solution_in_map.size(); i++) {
+            degree_in_heu.push_back(0);
+            ui u = heu_solution_in_map[i];
+            for (ui j = 0; j < heu_solution_in_map.size(); j++) {
+                ui v = heu_solution_in_map[j];
+                if (matrix[u * n + v]) degree_in_heu[i]++;
+            }
         }
 
+        // 从idx-1开始，依次减到0，尝试将其加入到S中
+        for (ui cur = 0; cur <= idx - 1; cur++) {
+            ui u = peel_sequence[idx - 1 - cur];
+            // printf("u = %d, i = %d\n", u, cur);
+            bool can_add_to_heu = true;
+
+            vector<ui> neighbors_vec, nonneighbors_vec;
+            for (ui i = 0; i < heu_solution_in_map.size(); i++) {
+                if (matrix[u * n + heu_solution_in_map[i]]) neighbors_vec.push_back(i);
+                else nonneighbors_vec.push_back(i);
+            }
+
+            for (ui i = 0; i < neighbors_vec.size(); i++) {
+                ui v = heu_solution_in_map[neighbors_vec[i]];
+                assert(degree_in_heu[neighbors_vec[i]] + K >= heu_solution_in_map.size());
+                if (degree_in_heu[neighbors_vec[i]] + K == heu_solution_in_map.size()) {
+                    can_add_to_heu = false;
+                    break;
+                }
+            }
+            if (neighbors_vec.size() + K <= heu_solution_in_map.size()) can_add_to_heu = false;
+
+            if (can_add_to_heu) {
+                for (ui i = 0; i < neighbors_vec.size(); i++)  degree_in_heu[neighbors_vec[i]]++;
+                heu_solution_in_map.push_back(u);
+                degree_in_heu.push_back(neighbors_vec.size());
+            }
+        }
+
+        if (heu_solution_in_map.size() > best_solution_size) {
+            best_solution_size = heu_solution_in_map.size();
+            for (int i = 0; i < best_solution_size; i++) best_solution[i] = mapping[heu_solution_in_map[i]];
+            printf("Degen find a solution of size %u\n", best_solution_size);
+        }
         if (best_solution_size > kplex.size()) {
             kplex.clear();
-            for (int i = 0; i < best_solution_size; i++)
-                kplex.push_back(best_solution[i]);
+            for (int i = 0; i < best_solution_size; i++) kplex.push_back(best_solution[i]);
         }
     }
 
@@ -342,8 +381,8 @@ private:
         level_cnt[level]++;
 
         // upper bound
-        // ui ub = upper_bound(S_end, C_end);
-        // if (ub <= best_solution_size) return;
+        ui ub = upper_bound(S_end, C_end);
+        if (ub <= best_solution_size) return;
 
         dfs_cnt_after_ub++;
         level_cnt_after_ub[level]++;
@@ -376,8 +415,8 @@ private:
         pruned = false;
         if (best_solution_size > old_kplex_size) {
             if (C_end <= best_solution_size) return;
-            // ub = upper_bound(S_end, C_end);
-            // if(ub <= best_solution_size) return;
+            ub = upper_bound(S_end, C_end);
+            if (ub <= best_solution_size) return;
             pruned = reduce_SC_based_lb(S_end, C_end, level);
         }
         if (!pruned) pruned = moveu_C_to_X(S_end, C_end, u, level);
@@ -625,6 +664,18 @@ private:
         swap(SC[i], SC[j]);
         SC_rid[SC[i]] = i;
         SC_rid[SC[j]] = j;
+    }
+
+    ui upper_bound(ui S_end, ui C_end)
+    {
+        return C_end;
+        // ui ub1 = upper_bound_based_partition_1(S_end, C_end);
+        // ui ub2 = upper_bound_based_partition_2(S_end, C_end);
+        // ui ub3 = upper_bound_based_partition_3(S_end, C_end);
+        // // assert(ub1 <= ub2);
+        // // assert(ub2 == ub3);
+
+        // return min(ub1, min(ub2, ub3));
     }
 
     ui upper_bound_based_partition_1(ui S_end, ui C_end)
