@@ -9,6 +9,7 @@ The original code and license can be found at: https://github.com/LijunChang/Max
 #include "Utility.h"
 #include "Timer.h"
 
+#define _SECOND_ORDER_PRUNING_
 class SIGNED_KPLEX
 {
 private:
@@ -17,6 +18,14 @@ private:
     ept m;
     int *matrix;
     long long matrix_size;
+
+#ifdef _SECOND_ORDER_PRUNING_
+    ui *cn;
+    std::queue<Edge> Qe;
+    std::vector<Edge> removed_edges;
+    long long removed_edges_n;
+#endif
+
     ui best_solution_size;
     ui *best_solution;
     ui *degree;
@@ -33,7 +42,6 @@ private:
     int dfs_cnt_after_ub = 0;
     vector<int> level_cnt;
     vector<int> level_cnt_after_ub;
-    bool *s_matrix_flag;
 
 public:
     SIGNED_KPLEX()
@@ -43,7 +51,10 @@ public:
         matrix_size = 0;
         best_solution_size = 0;
         best_solution = NULL;
-
+#ifdef _SECOND_ORDER_PRUNING_
+        cn = NULL;
+        removed_edges_n = 0;
+#endif
         degree = NULL;
         degree_in_S = NULL;
         neighbors = NULL;
@@ -52,7 +63,6 @@ public:
         SC_rid = NULL;
         level_id = NULL;
         vis = NULL;
-        s_matrix_flag = NULL;
     }
 
     ~SIGNED_KPLEX()
@@ -65,6 +75,12 @@ public:
             delete[] degree;
             degree = NULL;
         }
+#ifdef _SECOND_ORDER_PRUNING_
+        if (cn != NULL) {
+            delete[] cn;
+            cn = NULL;
+        }
+#endif
         if (best_solution != NULL) {
             delete[] best_solution;
             best_solution = NULL;
@@ -97,16 +113,15 @@ public:
             delete[] vis;
             vis = NULL;
         }
-        if (s_matrix_flag != NULL) {
-            delete[] s_matrix_flag;
-            s_matrix_flag = NULL;
-        }
     }
 
     void allocateMemory(ui n, ui m)
     {
         matrix_size = m * 2;
         matrix = new int[matrix_size];
+#ifdef _SECOND_ORDER_PRUNING_
+        cn = new ui[matrix_size];
+#endif
         best_solution = new ui[n];
         degree = new ui[n];
         degree_in_S = new ui[n];
@@ -116,7 +131,6 @@ public:
         SC_rid = new ui[n];
         level_id = new ui[n];
         vis = new ui[n];
-        s_matrix_flag = new bool[matrix_size];
         level_cnt.resize(n, 0);
         level_cnt_after_ub.resize(n, 0);
     }
@@ -126,12 +140,15 @@ public:
         n = _n;
         if (1ll * n * n > matrix_size) {
             while (1ll * n * n > matrix_size) matrix_size *= 2;
-            delete[] matrix;
-            matrix = new int[matrix_size];
-            delete[] s_matrix_flag;
-            s_matrix_flag = new bool[matrix_size];
+            delete[] matrix; matrix = new int[matrix_size];
+#ifdef _SECOND_ORDER_PRUNING_
+            delete[] cn; cn = new ui[matrix_size];
+#endif
         }
 
+#ifdef _SECOND_ORDER_PRUNING_
+        memset(cn, 0, sizeof(ui) * matrix_size);
+#endif
         memset(matrix, 0, sizeof(int) * matrix_size);
         memset(degree, 0, sizeof(ui) * n);
         memset(degree_in_S, 0, sizeof(ui) * n);
@@ -217,7 +234,7 @@ public:
             }
         }
 #ifndef NDEBUG
-        printf("after remove unbalanced triangle: n = %u, m = %d\n", n, m);
+        printf("after remove unbalanced triangle: n = %u, m = %lu\n", n, m);
 #endif
         // 做无符号图的启发式kplex
         ui *peel_sequence = neighbors;
@@ -244,7 +261,6 @@ public:
             for (ui j = 0; j < n; j++) if (!vis[j] && matrix[u * n + j]) --degree[j];
         }
 
-
         // 目前得到的启发式解是idx到n-1的一个后缀
         vector<ui> heu_solution_in_map;
         heu_solution_in_map.clear();
@@ -262,9 +278,8 @@ public:
         }
 
         // 从idx-1开始，依次减到0，尝试将其加入到S中
-        for (ui cur = 0; cur <= idx - 1; cur++) {
+        for (ui cur = 0; cur + 1 <= idx; cur++) {
             ui u = peel_sequence[idx - 1 - cur];
-            // printf("u = %d, i = %d\n", u, cur);
             bool can_add_to_heu = true;
 
             vector<ui> neighbors_vec, nonneighbors_vec;
@@ -337,12 +352,41 @@ private:
         memset(level_id, 0, sizeof(ui) * n);
         for (ui i = 0; i < C_end; i++) level_id[SC[i]] = n;
 
-        assert(Qv.empty());
+        while (!Qv.empty()) Qv.pop();
+#ifdef _SECOND_ORDER_PRUNING_
+        while (!Qe.empty()) Qe.pop();
+#endif
 
+#ifdef _SECOND_ORDER_PRUNING_
+        for (ui i = 0; i < C_end; i++) {
+            ui neighbors_n = 0;
+            int *t_matrix = matrix + SC[i] * n;
+            for (ui j = 0; j < C_end; j++) if (t_matrix[SC[j]]) neighbors[neighbors_n++] = SC[j];
+            for (ui j = 0; j < neighbors_n; j++) for (ui k = j + 1; k < neighbors_n; k++) {
+                ++cn[neighbors[j] * n + neighbors[k]];
+                ++cn[neighbors[k] * n + neighbors[j]];
+            }
+        }
+
+        assert(Qe.empty());
+        for (ui i = 0; i < C_end; i++) for (ui j = i + 1; j < C_end; j++) {
+            if (matrix[SC[i] * n + SC[j]] && upper_bound_based_prune(S_end, SC[i], SC[j])) {
+                Qe.push(Edge(SC[i], SC[j], matrix[SC[i] * n + SC[j]]));
+            }
+        }
+        removed_edges_n = 0;
+#endif
+        if (remove_vertices(S_end, C_end, 0)) {
+            C_end = 0;
+            return;
+        }
+        if (SC_rid[choose_u] >= C_end) {
+            C_end = 0;
+            return;
+        }
         // 将choose_u加入S
         if (choose_u != -1) {
             bool pruned = moveu_C_to_S(S_end, C_end, 0, choose_u);
-            assert(pruned == false);
             if (pruned) {
                 S_end = 0, C_end = 0;
                 return;
@@ -356,7 +400,7 @@ private:
 
     void kplex_search(ui S_end, ui C_end, ui level, vector<ui> pivot_set)
     {
-        // printf("S_end = %d, C_end = %d\n", S_end, C_end);
+        // printf("S_end = %d, C_end = %d, level = %d\n", S_end, C_end, level);
         if (S_end > best_solution_size) {
             best_solution_size = S_end;
             for (ui i = 0; i < best_solution_size; i++) best_solution[i] = SC[i];
@@ -370,6 +414,15 @@ private:
         if (C_end <= best_solution_size) return;
 
 #ifndef NDEBUG
+#ifdef _SECOND_ORDER_PRUNING_
+        for (ui i = 0; i < C_end; i++) for (ui j = i + 1; j < C_end; j++) {
+            ui v = SC[i], w = SC[j];
+            ui common_neighbors = 0;
+            for (ui k = S_end; k < C_end; k++) if (matrix[SC[k] * n + v] && matrix[SC[k] * n + w]) ++common_neighbors;
+            assert(cn[v * n + w] == common_neighbors);
+            assert(cn[w * n + v] == common_neighbors);
+        }
+#endif
         for (ui i = 0; i < C_end; i++) assert(degree[SC[i]] + K > best_solution_size);
         for (ui i = 0; i < S_end; i++) assert(degree_in_S[SC[i]] + K >= S_end);
         for (ui i = S_end; i < C_end; i++) assert(degree_in_S[SC[i]] + K > S_end);
@@ -388,6 +441,10 @@ private:
         level_cnt_after_ub[level]++;
 
         ui old_kplex_size = best_solution_size, old_C_end = C_end;
+        ui old_removed_edges_n = 0;
+#ifdef  _SECOND_ORDER_PRUNING_
+        old_removed_edges_n = removed_edges_n;
+#endif
 
         // choose branching vertex
         ui u = choose_branch_vertex_with_min_degree(S_end, C_end, pivot_set);
@@ -395,8 +452,12 @@ private:
         assert(SC[SC_rid[u]] == u && SC_rid[u] >= S_end && SC_rid[u] < C_end);
         assert(degree[u] + K > best_solution_size);
         assert(check_balance(S_end, u));
-
+        assert(Qv.empty());
+#ifdef _SECOND_ORDER_PRUNING_
+        assert(Qe.empty());
+#endif
         // the first branch includes u into S
+        // printf("level = %d, u: C->S, u = %d\n", level, u);
         vector<ui> new_pivot_set;
         bool pruned = moveu_C_to_S(S_end, C_end, level, u);
         // 加入点u时，向kplex_search函数传入空的pivot_set
@@ -405,27 +466,34 @@ private:
             kplex_search(S_end, C_end, level + 1, new_pivot_set);
         }
 
-        restore_C(S_end, C_end, old_C_end, level);
+        restore_C(S_end, C_end, old_C_end, old_removed_edges_n, level);
         moveu_S_to_C(S_end, C_end, level);
         assert(C_end == old_C_end);
-        assert(Qv.empty());
         assert(u == SC[S_end]);
+#ifdef  _SECOND_ORDER_PRUNING_
+        assert(removed_edges_n == old_removed_edges_n);
+#endif
 
         // the second branch exclude u from S
+        // printf("level = %d, u: C->X, u = %d\n", level, u);
+        assert(Qv.empty());
+#ifdef _SECOND_ORDER_PRUNING_
+        assert(Qe.empty());
+#endif
         pruned = false;
-        if (best_solution_size > old_kplex_size) {
-            if (C_end <= best_solution_size) return;
-            ub = upper_bound(S_end, C_end);
-            if (ub <= best_solution_size) return;
-            pruned = reduce_SC_based_lb(S_end, C_end, level);
-        }
+        if (best_solution_size > old_kplex_size) pruned = reduce_SC_based_lb(S_end, C_end, level);
+        // ub = upper_bound(S_end, C_end);
+        // if (!pruned) pruned = (ub <= best_solution_size);
         if (!pruned) pruned = moveu_C_to_X(S_end, C_end, u, level);
         if (!pruned) {
             new_pivot_set.clear();
             update_pivot_set(S_end, C_end, u, new_pivot_set);
             kplex_search(S_end, C_end, level + 1, new_pivot_set);
         }
-        restore_C(S_end, C_end, old_C_end, level);
+        restore_C(S_end, C_end, old_C_end, old_removed_edges_n, level);
+#ifdef  _SECOND_ORDER_PRUNING_
+        assert(removed_edges_n == old_removed_edges_n);
+#endif
     }
     /**
      * 选择分支顶点
@@ -471,28 +539,33 @@ private:
      * 2. 更新u的邻居在S中的度数
      * 3. 根据k-plex约束进行剪枝
      * 4. 检查平衡性约束
+     * 5. SECOND_ORDER_PRUNING
      */
     bool moveu_C_to_S(ui &S_end, ui &C_end, ui level, ui u)
     {
+        assert(Qv.empty());
+#ifdef _SECOND_ORDER_PRUNING_
+        assert(Qe.empty());
+#endif
         // 1
         swap_pos(SC_rid[u], S_end++);
         assert(u == SC[S_end - 1]);
 
         // 2
         ui neighbors_n = 0, nonneighbors_n = 0;
+        int *t_matrix = matrix + u * n;
         for (ui i = 0; i < C_end; i++) if (SC[i] != u) {
-            if (matrix[u * n + SC[i]]) neighbors[neighbors_n++] = SC[i];
+            if (t_matrix[SC[i]]) neighbors[neighbors_n++] = SC[i];
             else nonneighbors[nonneighbors_n++] = SC[i];
         }
-        assert(neighbors_n + nonneighbors_n == C_end - 1);
+
         for (ui i = 0; i < neighbors_n; i++) degree_in_S[neighbors[i]]++;
 
         // 3
-        assert(Qv.empty());
         if (degree_in_S[u] + K == S_end) {
             ui i = 0;
             while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end) i++;
-            for (; i < nonneighbors_n; i++) {
+            for (; i < nonneighbors_n; i++) if (level_id[nonneighbors[i]] == n) {
                 level_id[nonneighbors[i]] = level;
                 Qv.push(nonneighbors[i]);
             }
@@ -500,19 +573,22 @@ private:
         else {
             ui i = 0;
             while (i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end) i++;
-            for (; i < nonneighbors_n; i++) if (degree_in_S[nonneighbors[i]] + K <= S_end) {
-                level_id[nonneighbors[i]] = level;
-                Qv.push(nonneighbors[i]);
+            for (; i < nonneighbors_n; i++) if (level_id[nonneighbors[i]] == n) {
+                if (degree_in_S[nonneighbors[i]] + K <= S_end) {
+                    level_id[nonneighbors[i]] = level;
+                    Qv.push(nonneighbors[i]);
+                }
             }
         }
         for (ui i = 0; i < nonneighbors_n && SC_rid[nonneighbors[i]] < S_end; i++) {
             if (degree_in_S[nonneighbors[i]] + K == S_end) {
-                int *t_matrix = matrix + nonneighbors[i] * n;
-                for (ui j = S_end; j < C_end; j++)
-                    if (level_id[SC[j]] == n && !t_matrix[SC[j]]) {
+                int *tt_matrix = matrix + nonneighbors[i] * n;
+                for (ui j = S_end; j < C_end; j++) {
+                    if (level_id[SC[j]] == n && !tt_matrix[SC[j]]) {
                         level_id[SC[j]] = level;
                         Qv.push(SC[j]);
                     }
+                }
             }
         }
 
@@ -524,64 +600,257 @@ private:
                 ui v = neighbors[i];
                 if (level_id[neighbors[i]] == n && !check_balance(S_end, neighbors[i])) {
                     level_id[neighbors[i]] = level;
-                    assert(neighbors[i] != u);
                     Qv.push(neighbors[i]);
                 }
             }
         }
+
+#ifdef _SECOND_ORDER_PRUNING_
+        // update cn(.,.)
+        for (ui i = 0; i < neighbors_n; i++) { // process common neighbors of u
+            for (ui j = i + 1; j < neighbors_n; j++) {
+                ui v = neighbors[i], w = neighbors[j];
+                assert(cn[v * n + w]);
+                --cn[v * n + w];
+                --cn[w * n + v];
+            }
+        }
+
+        // u和u的非邻居，组成的节点对，其upper_bound_based_prune会减小
+        for (ui i = 0; i < nonneighbors_n; i++) {
+            int v = nonneighbors[i];
+            assert(!t_matrix[v]);
+            if (SC_rid[v] < S_end || level_id[v] == level || t_matrix[v]) continue;
+            if (upper_bound_based_prune(S_end, u, v)) {
+                level_id[v] = level;
+                Qv.push(v);
+            }
+        }
+
+        // 如果有一个是u的邻居，upper_bound_based_prune不变
+        int new_n = 0;
+        for (ui i = 0; i < nonneighbors_n; i++) if (level_id[nonneighbors[i]] > level) nonneighbors[new_n++] = nonneighbors[i];
+        nonneighbors_n = new_n;
+        for (ui i = 1; i < nonneighbors_n; i++) { // process common non-neighbors of u
+            ui w = nonneighbors[i];
+            for (ui j = 0; j < i; j++) {
+                ui v = nonneighbors[j];
+                if (!upper_bound_based_prune(S_end, v, w)) continue;
+                if (SC_rid[w] < S_end) return true; // v, w \in S --- UB2
+                else if (SC_rid[v] >= S_end) { // v, w, \in R --- RR5
+                    if (matrix[v * n + w]) Qe.push(Edge(v, w, matrix[v * n + w]));
+                }
+                else { // RR4
+                    assert(level_id[w] > level);
+                    level_id[w] = level;
+                    Qv.push(w);
+                    break;
+                }
+            }
+        }
+#endif
         return remove_vertices(S_end, C_end, level);
     }
     /**
-     * 从候选集C中移除顶点
+     * 从候选集C中移除顶点和边
      */
     bool remove_vertices(ui S_end, ui &C_end, ui level)
     {
-        while (!Qv.empty()) {
-            // remove u from C
-            ui u = Qv.front(); Qv.pop();
-            assert(level_id[u] == level);
-            assert(SC[SC_rid[u]] == u);
-            assert(SC_rid[u] >= S_end && SC_rid[u] < C_end);
-            swap_pos(SC_rid[u], --C_end);
-            assert(u == SC[C_end]);
+#ifdef _SECOND_ORDER_PRUNING_
+        while (!Qv.empty() || !Qe.empty())
+#else
+        while (!Qv.empty())
+#endif
+        {
+            while (!Qv.empty()) {
+                // remove u from C
+                ui u = Qv.front(); Qv.pop();
+                // printf("delete qv: u = %d\n", u);
+                assert(level_id[u] == level);
+                assert(SC[SC_rid[u]] == u);
+                assert(SC_rid[u] >= S_end && SC_rid[u] < C_end);
+                swap_pos(SC_rid[u], --C_end);
+                assert(u == SC[C_end]);
 
-            int *t_matrix = matrix + u * n;
-            bool terminate = false;
+                int *t_matrix = matrix + u * n;
+                bool terminate = false;
 
-            ui neighbors_n = 0;
+                ui neighbors_n = 0;
+                for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) {
+                    ui v = SC[i];
+                    neighbors[neighbors_n++] = v;
+                    degree[v]--;
+                    if (degree[v] + K <= best_solution_size) {
+                        if (i < S_end) terminate = true;
+                        else if (level_id[v] == n) {
+                            level_id[v] = level;
+                            Qv.push(v);
+                        }
+                    }
+                }
+#ifdef _SECOND_ORDER_PRUNING_
+                for (ui i = 1; i < neighbors_n; i++) {
+                    ui w = neighbors[i];
+                    for (ui j = 0; j < i; j++) {
+                        ui v = neighbors[j];
+                        assert(cn[v * n + w]);
+                        --cn[v * n + w];
+                        --cn[w * n + v];
+
+                        if (!upper_bound_based_prune(S_end, v, w)) continue;
+
+                        if (SC_rid[w] < S_end) terminate = true; // v < w < S_end
+                        else if (SC_rid[v] >= S_end) { // S_end < v < w
+                            if (matrix[v * n + w]) Qe.push(Edge(v, w, matrix[v * n + w]));
+                        }
+                        else if (level_id[w] == n) { // v < S_end < w
+                            level_id[w] = level;
+                            Qv.push(w);
+                        }
+                    }
+                }
+#endif
+                if (terminate) return true;
+            }
+#ifdef _SECOND_ORDER_PRUNING_
+            // 从Qe中取出一条边，并删除
+            if (Qe.empty()) break;
+            ui v = Qe.front().a, w = Qe.front().b;
+            int sign = Qe.front().c; Qe.pop();
+            // printf("delete qe: %d, %d, %d\n", v, w, sign);
+            if (level_id[v] <= level || level_id[w] <= level || !matrix[v * n + w]) continue;
+            assert(SC_rid[v] >= S_end && SC_rid[v] < C_end && SC_rid[w] >= S_end && SC_rid[w] < C_end);
+
+            assert(level_id[v] == n && level_id[w] == n);
+            if (degree[v] + K - 1 <= best_solution_size) {
+                level_id[v] = level;
+                Qv.push(v);
+            }
+            if (degree[w] + K - 1 <= best_solution_size) {
+                level_id[w] = level;
+                Qv.push(w);
+            }
+            if (!Qv.empty()) continue;
+
+            assert(matrix[v * n + w] == sign);
+            matrix[v * n + w] = matrix[w * n + v] = 0;
+            --degree[v]; --degree[w];
+
+            if (removed_edges.size() == removed_edges_n) {
+                removed_edges.push_back(Edge(v, w, sign));
+                ++removed_edges_n;
+            }
+            else removed_edges[removed_edges_n++] = Edge(v, w, sign);
+
+            int *t_matrix = matrix + v * n;
             for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) {
-                ui v = SC[i];
-                neighbors[neighbors_n++] = SC[i];
-                degree[v]--;
-                if (degree[v] + K <= best_solution_size) {
-                    if (i < S_end) terminate = true;
-                    else if (level_id[v] == n) {
+                --cn[w * n + SC[i]];
+                --cn[SC[i] * n + w];
+                if (!upper_bound_based_prune(S_end, w, SC[i])) continue;
+                if (i < S_end) {
+                    if (level_id[w] == n) {
+                        level_id[w] = level;
+                        Qv.push(w);
+                    }
+                }
+                else if (matrix[w * n + SC[i]]) Qe.push(Edge(w, SC[i], matrix[w * n + SC[i]]));
+            }
+            t_matrix = matrix + w * n;
+            for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) {
+                --cn[v * n + SC[i]];
+                --cn[SC[i] * n + v];
+                if (!upper_bound_based_prune(S_end, v, SC[i])) continue;
+                if (i < S_end) {
+                    if (level_id[v] == n) {
                         level_id[v] = level;
                         Qv.push(v);
                     }
                 }
+                else if (matrix[v * n + SC[i]]) Qe.push(Edge(v, SC[i], matrix[v * n + SC[i]]));
             }
-            if (terminate) return true;
+#endif
         }
         return false;
     }
     /**
-     * 恢复C集合中的顶点
+     * 恢复C集合中的顶点和边
      */
-    void restore_C(ui S_end, ui &C_end, ui old_C_end, ui level)
+    void restore_C(ui S_end, ui &C_end, ui old_C_end, ui old_removed_edges_n, ui level)
     {
         while (!Qv.empty()) {
             ui u = Qv.front(); Qv.pop();
-            assert(level_id[u] == level && SC_rid[u] < C_end);
+            assert(level_id[u] == level);
+            assert(SC_rid[u] < C_end);
             level_id[u] = n;
         }
+#ifdef _SECOND_ORDER_PRUNING_
+        while (!Qe.empty()) Qe.pop();
+#endif
+        // 恢复C集合中的顶点
         while (C_end < old_C_end) {
             ui u = SC[C_end];
             assert(level_id[u] == level && SC_rid[u] == C_end);
             level_id[u] = n;
-            for (ui i = 0; i < C_end; i++) if (matrix[u * n + SC[i]]) degree[SC[i]]++;
+
+            ui neighbors_n = 0;
+            int *t_matrix = matrix + u * n;
+            for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) {
+                neighbors[neighbors_n++] = SC[i];
+                degree[SC[i]]++;
+            }
+#ifdef _SECOND_ORDER_PRUNING_
+            // update cn(.,.)
+            for (ui i = 0; i < neighbors_n; i++) {
+                ui v = neighbors[i];
+                for (ui j = i + 1; j < neighbors_n; j++) {
+                    ui w = neighbors[j];
+                    cn[v * n + w]++;
+                    cn[w * n + v]++;
+                }
+            }
+            for (ui i = 0; i < C_end; i++) cn[u * n + SC[i]] = 0;
+            for (ui i = 0; i < neighbors_n; i++) if (SC_rid[neighbors[i]] >= S_end) {
+                ui v = neighbors[i];
+                for (ui j = 0; j < C_end; j++) if (matrix[v * n + SC[j]]) cn[u * n + SC[j]]++;
+            }
+            for (ui i = 0; i < C_end; i++) cn[SC[i] * n + u] = cn[u * n + SC[i]];
+#ifndef NDEBUG
+            for (ui i = 0; i < C_end; i++) {
+                ui common_neighbors = 0, v = SC[i], w = u;
+                for (ui k = S_end; k < C_end; k++) if (matrix[SC[k] * n + v] && matrix[SC[k] * n + w]) ++common_neighbors;
+                if (cn[u * n + SC[i]] != common_neighbors) printf("cn[u * n + SC[i]] = %u, comon_neighbors = %u\n", cn[u * n + SC[i]], common_neighbors);
+                assert(cn[u * n + SC[i]] == common_neighbors);
+            }
+#endif
+#endif
             C_end++;
         }
+#ifdef _SECOND_ORDER_PRUNING_
+        // 恢复删掉的边
+        // printf("old_removed_edges_n = %lu, removed_edges_n = %lu\n", old_removed_edges_n, removed_edges_n);
+        for (ui i = old_removed_edges_n; i < removed_edges_n; i++) {
+            ui v = removed_edges[i].a, w = removed_edges[i].b;
+            int sign = removed_edges[i].c;
+            assert(SC_rid[v] >= S_end && SC_rid[v] < C_end && SC_rid[w] >= S_end && SC_rid[w] < C_end);
+            assert(!matrix[v * n + w] && !matrix[w * n + v]);
+            // if (matrix[v * n + w]) continue;
+
+            matrix[v * n + w] = matrix[w * n + v] = sign;
+            ++degree[v]; ++degree[w];
+
+            for (ui i = 0; i < C_end; i++) {
+                if (matrix[v * n + SC[i]]) {
+                    ++cn[w * n + SC[i]];
+                    ++cn[SC[i] * n + w];
+                }
+                if (matrix[w * n + SC[i]]) {
+                    ++cn[v * n + SC[i]];
+                    ++cn[SC[i] * n + v];
+                }
+            }
+        }
+        removed_edges_n = old_removed_edges_n;
+#endif
     }
     /**
      * 将顶点u从集合S移动到集合C中
@@ -595,6 +864,20 @@ private:
         ui u = SC[--S_end];
         int *t_matrix = matrix + u * n;
         for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) degree_in_S[SC[i]]--;
+
+#ifdef _SECOND_ORDER_PRUNING_
+        // update cn(.,.)
+        ui neighbors_n = 0;
+        for (ui i = 0; i < C_end; i++) if (t_matrix[SC[i]]) neighbors[neighbors_n++] = SC[i];
+        for (ui i = 0; i < neighbors_n; i++) {
+            ui v = neighbors[i];
+            for (ui j = i + 1; j < neighbors_n; j++) {
+                ui w = neighbors[j];
+                ++cn[v * n + w];
+                ++cn[w * n + v];
+            }
+        }
+#endif
     }
     /**
      * 基于下界剪枝来化简SC集合
@@ -603,14 +886,41 @@ private:
     {
         assert(Qv.empty());
         for (ui i = 0; i < S_end; i++) if (degree[SC[i]] + K <= best_solution_size) return true;
-        for (ui i = S_end; i < C_end; i++) if (degree[SC[i]] + K <= best_solution_size) {
-            level_id[SC[i]] = level;
-            Qv.push(SC[i]);
+#ifdef _SECOND_ORDER_PRUNING_
+        for (ui i = 0; i < S_end; i++) for (ui j = i + 1; j < S_end; j++) {
+            if (upper_bound_based_prune(S_end, SC[i], SC[j])) return true;
         }
+#endif
+        for (ui i = S_end; i < C_end; i++) if (level_id[SC[i]] == n) {
+            ui u = SC[i];
+            if (degree[u] + K <= best_solution_size && level_id[SC[i]] == n) {
+                level_id[u] = level;
+                Qv.push(u);
+                continue;
+            }
+
+#ifdef _SECOND_ORDER_PRUNING_
+            for (ui j = 0; j < S_end; j++) {
+                ui v = SC[j];
+                if (degree_in_S[v] + K == S_end) assert(matrix[v * n + u]);
+                if (upper_bound_based_prune(S_end, v, u) && level_id[SC[i]] == n) {
+                    level_id[u] = level;
+                    Qv.push(u);
+                }
+            }
+#endif
+        }
+#ifdef _SECOND_ORDER_PRUNING_
+        for (ui i = S_end; i < C_end; i++) if (level_id[SC[i]] == n) {
+            for (ui j = i + 1; j < C_end; j++) if (level_id[SC[j]] == n && matrix[SC[i] * n + SC[j]]) {
+                if (upper_bound_based_prune(S_end, SC[i], SC[j]))  Qe.push(Edge(SC[i], SC[j], matrix[SC[i] * n + SC[j]]));
+            }
+        }
+#endif
         return remove_vertices(S_end, C_end, level);
     }
     /**
-     * 将顶点u从集合SC中删去
+     * 将顶点u从集合C中删去
      */
     bool moveu_C_to_X(ui S_end, ui &C_end, ui u, ui level)
     {
@@ -827,7 +1137,22 @@ private:
         assert(ub <= n);
         return ub;
     }
-
+#ifdef _SECOND_ORDER_PRUNING_
+    bool upper_bound_based_prune(ui S_end, ui u, ui v)
+    {
+        // ui ub = S_end + 2*K - (S_end - degree_in_S[u]) - (S_end - degree_in_S[v]) + cn[u*n + v];
+        ui ub = 2 * K + degree_in_S[u] + degree_in_S[v] + cn[u * n + v] - S_end;
+        if (SC_rid[u] >= S_end) {
+            --ub; // S_end ++
+            if (matrix[u * n + v]) ++ub; // degree_in_S[v] ++
+        }
+        if (SC_rid[v] >= S_end) {
+            --ub;
+            if (matrix[v * n + u]) ++ub;
+        }
+        return ub <= best_solution_size;
+    }
+#endif
     bool check_balance(ui S_end, ui u)
     {
         vector<ui> nei;
