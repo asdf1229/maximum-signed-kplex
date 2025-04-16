@@ -837,7 +837,6 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
 
     REBUILD_TIME += t.elapsed();
 }
-
 /**
  * @brief core-truss co-pruning
  *
@@ -870,12 +869,10 @@ void Graph::CTCP(int tv, int te, int del_v)
     if (del_v != -1) qv.push((ui)del_v);
     if (last_tv < tv) {
         for (ui u = 0; u < n; u++) {
-            if (degree[u] < tv)
-                qv.push(u);
+            if (degree[u] < tv) qv.push(u);
             for (ept i = pstart[u]; i < pend[u]; i++) {
                 ui v = edges[i];
-                if (u < v && tri_cnt[i] < te)
-                    qe.push(make_pair(u, i));
+                if (u < v && tri_cnt[i] < te) qe.push(make_pair(u, i));
             }
         }
     }

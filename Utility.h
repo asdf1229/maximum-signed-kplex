@@ -1,7 +1,7 @@
 #ifndef _UTILITY_H_
 #define _UTILITY_H_
 
-// #define NDEBUG
+#define NDEBUG
 // #define NPRINT
 #include <bits/stdc++.h>
 using namespace std;
