@@ -6,8 +6,7 @@ using namespace std;
 // Usage: [0]exe [1]input_graph [2]k
 int main(int argc, const char *argv[])
 {
-    if (argc < 2)
-    {
+    if (argc < 2) {
         cout << "\t Usage: [0]exe [1]input_graph [2]k" << endl;
         exit(1);
     }
@@ -15,8 +14,7 @@ int main(int argc, const char *argv[])
     string file_path = argv[1];
     ui K = atoi(argv[2]);
 
-    if (K < 1)
-    {
+    if (K < 1) {
         cout << "Error: k must be a positive integer." << endl;
         exit(1);
     }

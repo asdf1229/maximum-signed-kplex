@@ -9,7 +9,7 @@ The original code and license can be found at: https://github.com/LijunChang/Max
 #include "Utility.h"
 #include "Timer.h"
 
-#define _SECOND_ORDER_PRUNING_
+// #define _SECOND_ORDER_PRUNING_
 class SIGNED_KPLEX
 {
 private:
@@ -38,8 +38,10 @@ private:
     ui *vis;
     queue<ui> Qv;
 
-    int dfs_cnt = 0;
-    int dfs_cnt_after_ub = 0;
+    long long dfs_cnt = 0;
+    long long dfs_cnt_after_ub = 0;
+    long long g_dfs_cnt = 0;
+    long long g_dfs_cnt_after_ub = 0;
     vector<int> level_cnt;
     vector<int> level_cnt_after_ub;
 
@@ -171,6 +173,7 @@ public:
 
     void kPlex(ui K_, vector<ui> &kplex, int choose_u)
     {
+        // printf("n = %u, m = %lu, K = %u\n", n, m, K_);
         K = K_;
         best_solution_size = kplex.size();
         ui S_end = 0, C_end = 0;
@@ -183,6 +186,9 @@ public:
             for (int i = 0; i < best_solution_size; i++)
                 kplex.push_back(best_solution[i]);
         }
+        // printf("dfs_cnt = %lld, dfs_cnt_after_ub = %lld\n", dfs_cnt, dfs_cnt_after_ub);
+        g_dfs_cnt += dfs_cnt; g_dfs_cnt_after_ub += dfs_cnt_after_ub;
+        // printf("SIGNED_KPLEX: best_solution_size = %d\n", best_solution_size);
     }
 
     void heu_kPlex(ui K_, vector<ui> &kplex, int choose_u)
@@ -190,15 +196,16 @@ public:
         K = K_;
         best_solution_size = kplex.size();
 #ifndef NDEBUG
-        printf("heu_kplex: n = %u\n", n);
+        // printf("heu_kplex: n = %u\n", n);
 #endif
 
         // 对于每一个不平衡三角形，选择度数最小的点，将其删去
+        ui now_deleted_v = 0;
         memset(vis, 0, sizeof(ui) * n);
         for (ui i = 0; i < n; i++) if (!vis[i]) {
             for (ui j = i + 1; j < n; j++) if (!vis[j]) {
                 if (!matrix[i * n + j]) continue;
-                for (ui k = j + 1; k < n; k++) if (!vis[k]) {
+                for (ui k = 0; k < n; k++) if (!vis[k]) {
                     if (!matrix[i * n + k] || !matrix[j * n + k]) continue;
                     int tri_sum = matrix[i * n + j] + matrix[j * n + k] + matrix[i * n + k];
                     if (tri_sum == 1 || tri_sum == -3) {
@@ -210,8 +217,34 @@ public:
                         }
                         vis[min_degree_vertex] = 1;
                         for (ui v = 0; v < n; v++) if (matrix[min_degree_vertex * n + v]) degree[v]--;
+
+                        if (min_degree_vertex == i) now_deleted_v = 1;
+                        else if (min_degree_vertex == j) now_deleted_v = 2;
+                        else if (min_degree_vertex == k) now_deleted_v = 3;
+                        else assert(0);
+                    }
+
+                    if (now_deleted_v == 3) {
+                        now_deleted_v = 0;
+                        continue;
+                    }
+                    else if (now_deleted_v == 2 || now_deleted_v == 1) {
+                        break;
                     }
                 }
+
+                if (now_deleted_v == 2) {
+                    now_deleted_v = 0;
+                    continue;
+                }
+                else if (now_deleted_v == 1) {
+                    break;
+                }
+            }
+
+            if (now_deleted_v == 1) {
+                now_deleted_v = 0;
+                continue;
             }
         }
         assert(choose_u == 0);
@@ -234,7 +267,7 @@ public:
             }
         }
 #ifndef NDEBUG
-        printf("after remove unbalanced triangle: n = %u, m = %lu\n", n, m);
+        // printf("after remove unbalanced triangle: n = %u, m = %lu\n", n, m);
 #endif
         // 做无符号图的启发式kplex
         ui *peel_sequence = neighbors;
@@ -261,6 +294,9 @@ public:
             for (ui j = 0; j < n; j++) if (!vis[j] && matrix[u * n + j]) --degree[j];
         }
 
+#ifndef NDEBUG
+        // printf("\tstage1: heu_kplex_size = %u\n", n - idx);
+#endif
         // 目前得到的启发式解是idx到n-1的一个后缀
         vector<ui> heu_solution_in_map;
         heu_solution_in_map.clear();
@@ -308,7 +344,7 @@ public:
         if (heu_solution_in_map.size() > best_solution_size) {
             best_solution_size = heu_solution_in_map.size();
             for (int i = 0; i < best_solution_size; i++) best_solution[i] = mapping[heu_solution_in_map[i]];
-            printf("Degen find a solution of size %u\n", best_solution_size);
+            // printf("\tsigned kplex: Degen find a solution of size %u\n", best_solution_size);
         }
         if (best_solution_size > kplex.size()) {
             kplex.clear();
@@ -316,6 +352,10 @@ public:
         }
     }
 
+    void print_dfs_cnt()
+    {
+        printf("g_dfs_cnt = %lld, g_dfs_cnt_after_ub = %lld\n", g_dfs_cnt, g_dfs_cnt_after_ub);
+    }
 private:
     // init S, C
     void init(ui &S_end, ui &C_end, int choose_u, vector<ui> &pivot_set)
@@ -380,12 +420,12 @@ private:
             C_end = 0;
             return;
         }
-        if (SC_rid[choose_u] >= C_end) {
-            C_end = 0;
-            return;
-        }
         // 将choose_u加入S
         if (choose_u != -1) {
+            if (SC_rid[choose_u] >= C_end) {
+                C_end = 0;
+                return;
+            }
             bool pruned = moveu_C_to_S(S_end, C_end, 0, choose_u);
             if (pruned) {
                 S_end = 0, C_end = 0;
@@ -435,7 +475,12 @@ private:
 
         // upper bound
         ui ub = upper_bound(S_end, C_end);
-        if (ub <= best_solution_size) return;
+        if (ub <= best_solution_size) {
+            // #ifndef NDEBUG
+            // printf("pruned!!\n");
+            // #endif
+            return;
+        }
 
         dfs_cnt_after_ub++;
         level_cnt_after_ub[level]++;
@@ -447,32 +492,42 @@ private:
 #endif
 
         // choose branching vertex
+        bool pruned = false;
         ui u = choose_branch_vertex_with_min_degree(S_end, C_end, pivot_set);
+        vector<ui> new_pivot_set;
         assert(u != n);
         assert(SC[SC_rid[u]] == u && SC_rid[u] >= S_end && SC_rid[u] < C_end);
         assert(degree[u] + K > best_solution_size);
         assert(check_balance(S_end, u));
-        assert(Qv.empty());
-#ifdef _SECOND_ORDER_PRUNING_
-        assert(Qe.empty());
-#endif
-        // the first branch includes u into S
-        // printf("level = %d, u: C->S, u = %d\n", level, u);
-        vector<ui> new_pivot_set;
-        bool pruned = moveu_C_to_S(S_end, C_end, level, u);
-        // 加入点u时，向kplex_search函数传入空的pivot_set
-        if (!pruned) {
-            new_pivot_set.clear();
-            kplex_search(S_end, C_end, level + 1, new_pivot_set);
-        }
 
-        restore_C(S_end, C_end, old_C_end, old_removed_edges_n, level);
-        moveu_S_to_C(S_end, C_end, level);
-        assert(C_end == old_C_end);
-        assert(u == SC[S_end]);
-#ifdef  _SECOND_ORDER_PRUNING_
-        assert(removed_edges_n == old_removed_edges_n);
+        // if (upper_bound_after_choose_u(S_end, C_end, u) <= best_solution_size) {
+        //     swap_pos(SC_rid[u], S_end);
+        //     assert(u == SC[S_end - 1]);
+        //     pruned = true;
+        // }
+
+        if (!pruned) {
+            assert(Qv.empty());
+#ifdef _SECOND_ORDER_PRUNING_
+            assert(Qe.empty());
 #endif
+            // the first branch includes u into S
+            // printf("level = %d, u: C->S, u = %d\n", level, u);
+            pruned = moveu_C_to_S(S_end, C_end, level, u);
+            // 加入点u时，向kplex_search函数传入空的pivot_set
+            if (!pruned) {
+                new_pivot_set.clear();
+                kplex_search(S_end, C_end, level + 1, new_pivot_set);
+            }
+
+            restore_C(S_end, C_end, old_C_end, old_removed_edges_n, level);
+            moveu_S_to_C(S_end, C_end, level);
+            assert(C_end == old_C_end);
+            assert(u == SC[S_end]);
+#ifdef  _SECOND_ORDER_PRUNING_
+            assert(removed_edges_n == old_removed_edges_n);
+#endif
+        }
 
         // the second branch exclude u from S
         // printf("level = %d, u: C->X, u = %d\n", level, u);
@@ -978,8 +1033,9 @@ private:
 
     ui upper_bound(ui S_end, ui C_end)
     {
-        return C_end;
-        // ui ub1 = upper_bound_based_partition_1(S_end, C_end);
+        // return C_end;
+        ui ub1 = upper_bound_based_partition_1(S_end, C_end);
+        return ub1;
         // ui ub2 = upper_bound_based_partition_2(S_end, C_end);
         // ui ub3 = upper_bound_based_partition_3(S_end, C_end);
         // // assert(ub1 <= ub2);
@@ -995,21 +1051,19 @@ private:
         ui *C_missing_edges = nonneighbors;
         memset(count, 0, sizeof(ui) * n);
         memset(vis, 0, sizeof(ui) * n);
+
+        // 计算S中每个顶点在C中的非邻居数量和可缺失的边数
         for (ui i = 0; i < S_end; i++) {
             assert(K >= S_end - degree_in_S[SC[i]]);
             C_missing_edges[i] = K - (S_end - degree_in_S[SC[i]]);
-            for (ui j = S_end; j < C_end; j++)
-                if (!matrix[SC[i] * n + SC[j]])
-                    count[i]++;
-            // printf("count[%d] = %d\n", SC[i], count[i]);
+            for (ui j = S_end; j < C_end; j++) if (!matrix[SC[i] * n + SC[j]]) count[i]++;
         }
-        for (ui i = 0; i < S_end; i++) {
-            if (count[i] <= C_missing_edges[i]) {
-                vis[i] = 1;
-            }
-        }
+
+        // 标记那些非邻居数量不超过可缺失边数的顶点
+        for (ui i = 0; i < S_end; i++) if (count[i] <= C_missing_edges[i]) vis[i] = 1;
+
         while (1) {
-            // find max dise
+            // 找到最大密度比(非邻居数/可缺失边数)的顶点
             int uid = -1;
             double max_dise = 0;
             for (ui i = 0; i < S_end; i++)
@@ -1020,17 +1074,20 @@ private:
                         uid = i;
                     }
                 }
-            if (uid == -1 || max_dise <= 1)
-                break;
+
+            if (uid == -1 || max_dise <= 1) break;
+
+            // 标记选中的顶点,更新上界
             vis[uid] = 1;
             ui u = SC[uid];
-            // printf("u = %d, C_missing_edges = %d, count = %d\n", u, C_missing_edges[uid], count[uid]);
-            // printf("u = %d, contribution = %d, max_dise = %.6lf\n", SC[uid], min(C_missing_edges[uid], count[uid]), max_dise);
-            ub = ub + min(C_missing_edges[uid], count[uid]);
+            assert(C_missing_edges[uid] <= count[uid]);
+            ub = ub + C_missing_edges[uid];
 
+            // 处理选中顶点的非邻居
             for (ui j = S_end; j < C_end; j++) {
                 if (!vis[j] && !matrix[u * n + SC[j]]) {
                     vis[j] = 1;
+                    // 更新其他未访问顶点的非邻居计数
                     for (ui k = 0; k < S_end; k++) {
                         if (!vis[k] && !matrix[SC[k] * n + SC[j]]) {
                             assert(count[k] > 0);
@@ -1042,25 +1099,12 @@ private:
             }
         }
 
-        int total = 0;
-        for (ui i = S_end; i < C_end; i++) {
-            if (!vis[i])
-                total++;
-        }
-        // printf("C - total = %d\n", C_end - total);
+        // // 统计C中未被访问的顶点数
+        // int total = 0;
+        // for (ui i = S_end; i < C_end; i++) if (!vis[i])total++;
 
-        ui *ub2_vertices = neighbors;
-        ui ub2_vertices_n = 0;
-        ui *colors = nonneighbors;
-        memset(colors, 0, sizeof(ui) * n);
-        for (ui i = S_end; i < C_end; i++) {
-            if (!vis[i])
-                ub2_vertices[++ub2_vertices_n] = SC[i];
-        }
-
-        // printf("S_end = %d, pi0 = %d\n", S_end, pi0);
+        // 计算最终上界
         ub = S_end + pi0 + ub;
-        // printf("S_end = %u, C_end = %u, ub = %u, kplex = %u, total = %d\n", S_end, C_end, ub, best_solution_size, total);
         assert(ub <= C_end);
         return ub;
     }

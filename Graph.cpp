@@ -7,6 +7,7 @@
 #include "Graph.h"
 #include "Utility.h"
 #include "SignedKplex.h"
+#include "SignedKplex_new.h"
 
 static long long REBUILD_TIME = 0;
 static long long HEU_TIME = 0;
@@ -225,6 +226,7 @@ void Graph::load_graph(string input_graph)
  * 3. 检查和维护符号平衡性约束
  * 4. 更新当前找到的最大k-plex
  */
+
 void Graph::heu_signed_kplex()
 {
     Timer t;
@@ -236,6 +238,10 @@ void Graph::heu_signed_kplex()
 
     SIGNED_KPLEX *signed_kplex_solver = new SIGNED_KPLEX();
     signed_kplex_solver->allocateMemory(n, m);
+    SIGNED_KPLEX_BITSET *signed_kplex_solver_bitset = new SIGNED_KPLEX_BITSET();
+    signed_kplex_solver_bitset->allocateMemory(n);
+
+    vector<ui> kplex_bitset;
 
     vector<Edge> vp;
     vp.reserve(m);
@@ -249,7 +255,7 @@ void Graph::heu_signed_kplex()
 
     // 1-hop heuristic
     ui cur = 0;
-    ui num1 = min(n, (ui)10);
+    ui num1 = min(n, (ui)20);
     for (ui i = 1; i <= num1; i++) {
         if (n < cur + 1) break;
         ui u = dorder[n - (++cur)];
@@ -263,6 +269,12 @@ void Graph::heu_signed_kplex()
         if (s_n > lb) {
             signed_kplex_solver->load_graph(s_n, vp);
             signed_kplex_solver->heu_kPlex(K, kplex, rid_u);
+
+            signed_kplex_solver_bitset->load_graph(s_n, vp);
+            signed_kplex_solver_bitset->heu_kPlex(K, kplex_bitset, rid_u);
+#ifndef NDEBUG
+            printf("std_heu_kplex_size = %lu, bitset_heu_kplex_size = %lu\n", kplex.size(), kplex_bitset.size());
+#endif
         }
 
         if (kplex.size() > lb) {
@@ -275,7 +287,7 @@ void Graph::heu_signed_kplex()
     }
 
     // 2-hop heuristic
-    ui num2 = min(n, (ui)10);
+    ui num2 = min(n, (ui)20);
     for (ui i = 1; i <= num2; i++) {
         if (n < cur + 1) break;
         ui u = dorder[n - (++cur)];
@@ -288,6 +300,12 @@ void Graph::heu_signed_kplex()
         if (s_n > lb) {
             signed_kplex_solver->load_graph(s_n, vp);
             signed_kplex_solver->heu_kPlex(K, kplex, rid_u);
+
+            signed_kplex_solver_bitset->load_graph(s_n, vp);
+            signed_kplex_solver_bitset->heu_kPlex(K, kplex_bitset, rid_u);
+#ifndef NDEBUG
+            printf("std_heu_kplex_size = %lu, bitset_heu_kplex_size = %lu\n", kplex.size(), kplex_bitset.size());
+#endif
         }
 
         if (kplex.size() > lb) {
@@ -299,14 +317,32 @@ void Graph::heu_signed_kplex()
         }
     }
 
+    // kplex.push_back(1000000);
+    // printf("kplex_size = %lu, lb = %d\n", kplex.size(), lb);
+    // fflush(stdout);
+    // if (kplex.size() > lb) {
+    //     // for (auto &v : kplex) v = v_rid[ids[v]];
+    //     lb = kplex.size();
+    //     CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    //     ub = min(ub, (int)degen(dorder));
+    //     cur = 0;
+    // }
+
+    delete[] dorder;
+    delete[] ids;
+    delete[] mark;
+    delete[] Q;
+    delete[] nei_degree;
+    delete[] rid;
     delete signed_kplex_solver;
+    delete signed_kplex_solver_bitset;
 
     HEU_TIME = t.elapsed();
     TOT_TIME += HEU_TIME;
-#ifndef NPRINT
-    cout << "\t -------------------heu_find_kplex-------------------" << endl;
-    cout << "\t heu_kplex_size = " << kplex.size() << ",\t time cost = " << integer_to_string(t.elapsed()) << endl;
-#endif
+
+    cout << "-------------------heu_find_kplex-------------------" << endl;
+    printf("std_heu_kplex_size = %lu, bitset_heu_kplex_size = %lu\n", kplex.size(), kplex_bitset.size());
+    cout << "\theu_kplex_size = " << kplex.size() << ",\t time cost = " << integer_to_string(t.elapsed()) << endl;
 }
 /**
  * @brief find_signed_kplex
@@ -320,24 +356,29 @@ void Graph::find_signed_kplex()
 
     SIGNED_KPLEX *signed_kplex_solver = new SIGNED_KPLEX();
     signed_kplex_solver->allocateMemory(n, m);
+    SIGNED_KPLEX_BITSET *signed_kplex_solver_bitset = new SIGNED_KPLEX_BITSET();
+    signed_kplex_solver_bitset->allocateMemory(n);
 
     vector<Edge> vp;
     vp.reserve(m);
 
     ui *ids = new ui[n];
+    memset(ids, 0, sizeof(ui) * n);
     ui *mark = new ui[n];
     memset(mark, 0, sizeof(ui) * n);
     ui *Q = new ui[n];
     ui *nei_degree = new ui[n];
     ui *rid = new ui[n];
+    vector<ui> kplex_bitset = kplex;
+
+    long long BNB_STD_TIME = 0;
+    long long BNB_BITSET_TIME = 0;
 
     while (n > lb) {
-        printf("n = %d, lb = %d\n", n, lb);
         // get u
         get_degree();
         ui u = 0;
         for (ui i = 1; i < n; i++) if (degree[u] > degree[i]) u = i;
-        // printf("deg = %d, u = %d\n", degree[u], u);
 
         // get g
         ui s_n = 0;
@@ -346,11 +387,49 @@ void Graph::find_signed_kplex()
         extract_subgraph_two_hop(u, vp, s_n, ids, rid, Q, nei_degree, mark);
 
         if (s_n > lb) {
+            // printf("start bnb: s_n = %d, s_m = %d, u = %d\n", s_n, vp.size(), v_rid[u]);
             // bnb
             Timer t_bnb;
             t_bnb.restart();
+
+            // standard
+            Timer t_standard;
+            t_standard.restart();
+            // cout << "standard bnb start" << endl;
             signed_kplex_solver->load_graph(s_n, vp);
             signed_kplex_solver->kPlex(K, kplex, (s_n == n) ? -1 : rid_u);
+            BNB_STD_TIME = t_standard.elapsed();
+            // cout << "standard time cost = " << integer_to_string(BNB_STD_TIME) << endl;
+
+            // bitset
+            Timer t_bitset;
+            t_bitset.restart();
+            // cout << "bitset bnb start" << endl;
+            signed_kplex_solver_bitset->load_graph(s_n, vp);
+            signed_kplex_solver_bitset->kPlex(K, kplex_bitset, (s_n == n) ? -1 : rid_u);
+            BNB_BITSET_TIME = t_bitset.elapsed();
+            // cout << "bitset time cost = " << integer_to_string(BNB_BITSET_TIME) << endl;
+
+            // printf("**end bnb: kplex.size() = %d, kplex_bitset.size() = %d\n", kplex.size(), kplex_bitset.size());
+            if (kplex.size() != kplex_bitset.size()) {
+                printf("kplex: ");
+                for (auto v : kplex) printf("%d ", v);
+                // for (auto v : kplex) printf("%d ", v_rid[ids[v]]);
+                printf("\n");
+                printf("kplex_bitset: ");
+                for (auto v : kplex_bitset) printf("%d ", v);
+                // for (auto v : kplex_bitset) printf("%d ", v_rid[ids[v]]);
+                // printf("\n");
+                printf("vid:\n");
+                for (ui i = 0; i < n; i++) printf("ids[%d] = %d\n", i, v_rid[ids[i]]);
+                // printf("\n");
+                // printf("vp:\n");
+                // for (auto e : vp) printf("(%d, %d, %d)\n", v_rid[ids[e.a]], v_rid[ids[e.b]], e.c);
+                // 终止程序
+                cout << "ERROR: kplex.size() != kplex_bitset.size()" << endl;
+                exit(1);
+            }
+
             BNB_TIME += t_bnb.elapsed();
         }
 
@@ -365,8 +444,17 @@ void Graph::find_signed_kplex()
         CTCP(lb + 1 - K, lb + 1 - 2 * K, u);
     }
 
+    // signed_kplex_solver->print_dfs_cnt();
     delete signed_kplex_solver;
+    delete signed_kplex_solver_bitset;
+    delete[] ids;
+    delete[] mark;
+    delete[] Q;
+    delete[] nei_degree;
+    delete[] rid;
     TOT_TIME += t.elapsed();
+
+    printf("BNB_STD_TIME = %lld, BNB_BITSET_TIME = %lld\n", BNB_STD_TIME, BNB_BITSET_TIME);
 }
 /**
  * @brief 打印算法运行结果
@@ -963,6 +1051,6 @@ void Graph::CTCP(int tv, int te, int del_v)
 #endif
     CTCP_TIME += t.elapsed();
     // #ifndef NDEBUG
-    cout << "\t CTCP, T : " << integer_to_string(t.elapsed()) << ",\t n = " << n << ", m = " << m / 2 << endl;
+    cout << "\tCTCP, T : " << integer_to_string(t.elapsed()) << ",\t n = " << n << ", m = " << m / 2 << endl;
     // #endif
 }
