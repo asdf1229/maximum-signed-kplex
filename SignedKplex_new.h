@@ -279,16 +279,16 @@ private:
         }
 #endif
 
-        if (ori_u != -1 && C.intersect(non_matrix[ori_u]) == 0) {
-#ifndef NDEBUG
-            printf("ori_u = %d, C.size = %d, non_matrix[ori_u].size = %d\n",
-                ori_u, C.size(), non_matrix[ori_u].size());
-#endif
-            Set S0 = S, SL(n), SR(n);
-            Set CL = C & matrix[ori_u], CR = C & matrix[ori_u];
-            bnb_search_one_hop(S0, SL, SR, CL, CR);
-            return;
-        }
+        //         if (ori_u != -1 && C.intersect(non_matrix[ori_u]) == 0) {
+        // #ifndef NDEBUG
+        //             printf("ori_u = %d, C.size = %d, non_matrix[ori_u].size = %d\n",
+        //                 ori_u, C.size(), non_matrix[ori_u].size());
+        // #endif
+        //             Set S0 = S, SL(n), SR(n);
+        //             Set CL = C & matrix[ori_u], CR = C & matrix[ori_u];
+        //             bnb_search_one_hop(S0, SL, SR, CL, CR);
+        //             return;
+        //         }
         // choose branching vertex
         ui u = choose_branch_vertex_two_hop(S, C);
         assert(C.contains(u));

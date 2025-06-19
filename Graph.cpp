@@ -8,6 +8,7 @@
 #include "Utility.h"
 #include "SignedKplex.h"
 #include "SignedKplex_new.h"
+#include "MyBitset.h"
 
 static long long REBUILD_TIME = 0;
 static long long HEU_TIME = 0;
@@ -22,6 +23,7 @@ Graph::Graph(const int _k)
     n = m = pm = nm = 0;
     lb = ub = 0;
     edges = nullptr;
+    rev_edges = nullptr;
     pstart = pend = nullptr;
     esign = nullptr;
     degree = v_rid = vis = nullptr;
@@ -35,6 +37,7 @@ Graph::~Graph()
     delete[] pstart;
     delete[] pend;
     delete[] edges;
+    delete[] rev_edges;
     delete[] esign;
     delete[] degree;
     delete[] tri_cnt;
@@ -42,6 +45,7 @@ Graph::~Graph()
     delete[] vis;
 
     edges = nullptr;
+    rev_edges = nullptr;
     pstart = pend = nullptr;
     esign = nullptr;
     degree = v_rid = vis = nullptr;
@@ -163,6 +167,7 @@ void Graph::load_graph(string input_graph)
     input_file.close();
 
     edges = new ui[m];
+    rev_edges = new ui[m];
     pstart = new ept[n + 1];
     pend = new ept[n];
     esign = new int[m];
@@ -204,6 +209,21 @@ void Graph::load_graph(string input_graph)
         }
     }
 
+    // 计算每条边的反向边
+    for (ui u = 0; u < n; u++) pend[u] = pstart[u];
+    for (ui u = 0; u < n; u++) {
+        for (ept i = pstart[u]; i < pstart[u + 1]; i++) {
+            rev_edges[i] = pend[edges[i]]++;
+        }
+    }
+    for (ui u = 0; u < n; u++) {
+        if (pend[u] != pstart[u + 1]) {
+            printf("u = %d, pend[u] = %d, pstart[u + 1] = %d\n", u, pend[u], pstart[u + 1]);
+            assert(false);
+            exit(1);
+        }
+    }
+
     for (ui i = 0; i < n; i++) v_rid[i] = i;
 
     lb = 0, ub = n;
@@ -226,13 +246,12 @@ void Graph::load_graph(string input_graph)
  * 3. 检查和维护符号平衡性约束
  * 4. 更新当前找到的最大k-plex
  */
-
 void Graph::heu_signed_kplex()
 {
     Timer t;
     t.restart();
     lb = max((int)kplex.size(), 2 * K - 2);
-    CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    CTCP(lb);
     ui *dorder = new ui[n];
     ub = degen(dorder);
 
@@ -280,7 +299,7 @@ void Graph::heu_signed_kplex()
         if (kplex.size() > lb) {
             for (auto &v : kplex) v = v_rid[ids[v]];
             lb = kplex.size();
-            CTCP(lb + 1 - K, lb + 1 - 2 * K);
+            CTCP(lb);
             ub = min(ub, (int)degen(dorder));
             cur = 0;
         }
@@ -311,7 +330,7 @@ void Graph::heu_signed_kplex()
         if (kplex.size() > lb) {
             for (auto &v : kplex) v = v_rid[ids[v]];
             lb = kplex.size();
-            CTCP(lb + 1 - K, lb + 1 - 2 * K);
+            CTCP(lb);
             ub = min(ub, (int)degen(dorder));
             cur = 0;
         }
@@ -323,7 +342,7 @@ void Graph::heu_signed_kplex()
     // if (kplex.size() > lb) {
     //     // for (auto &v : kplex) v = v_rid[ids[v]];
     //     lb = kplex.size();
-    //     CTCP(lb + 1 - K, lb + 1 - 2 * K);
+    //     CTCP(lb);
     //     ub = min(ub, (int)degen(dorder));
     //     cur = 0;
     // }
@@ -441,7 +460,7 @@ void Graph::find_signed_kplex()
         if (s_n == n) break;
 
         // CTCP
-        CTCP(lb + 1 - K, lb + 1 - 2 * K, u);
+        CTCP(lb, u);
     }
 
     // signed_kplex_solver->print_dfs_cnt();
@@ -510,28 +529,13 @@ void Graph::get_tricnt()
                 for (ept j = pstart[v]; j < pend[v]; j++) {
                     ui w = edges[j];
                     if (mark[w] && v < w) {
-                        // // 判断是否是平衡三角形
-                        // int sign_uv = esign[i];
-                        // int sign_vw = esign[j];
-                        // int sign_uw = esign[mark[w] - 1];
-                        // int tri_cn = sign_uv + sign_vw + sign_uw;
-                        // assert(tri_cn == 3 || tri_cn == 1 || tri_cn == -1 || tri_cn == -3);
-                        // if (tri_cn == 1 || tri_cn == -3) continue;
-
                         ept id_uv = i;
-                        ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
+                        ept id_vu = rev_edges[i];
                         ept id_vw = j;
-                        ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
+                        ept id_wv = rev_edges[j];
                         ept id_uw = mark[w] - 1;
-                        ept id_wu = pstart[w] + find(edges + pstart[w], edges + pend[w], u);
-#ifndef NDEBUG
-                        ept id_uv1 = pstart[u] + find(edges + pstart[u], edges + pend[u], v);
-                        ept id_vw1 = pstart[v] + find(edges + pstart[v], edges + pend[v], w);
-                        ept id_uw1 = pstart[u] + find(edges + pstart[u], edges + pend[u], w);
-                        assert(id_uv == id_uv1);
-                        assert(id_vw == id_vw1);
-                        assert(id_uw == id_uw1);
-#endif
+                        ept id_wu = rev_edges[mark[w] - 1];
+
                         tri_cnt[id_uv]++;
                         tri_cnt[id_vu]++;
                         tri_cnt[id_vw]++;
@@ -920,6 +924,19 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
     }
 
     for (ui u = 1; u <= n; u++)  pstart[u] = pend[u - 1];
+    for (ui u = 0; u < n; u++) pend[u] = pstart[u];
+    for (ui u = 0; u < n; u++) {
+        for (ept i = pstart[u]; i < pstart[u + 1]; i++) {
+            rev_edges[i] = pend[edges[i]]++;
+        }
+    }
+    for (ui u = 0; u < n; u++) {
+        if (pend[u] != pstart[u + 1]) {
+            printf("u = %d, pend[u] = %d, pstart[u + 1] = %d\n", u, pend[u], pstart[u + 1]);
+            assert(false);
+            exit(1);
+        }
+    }
 
     delete[] rid;
 
@@ -933,19 +950,18 @@ void Graph::rebuild_graph(bool *v_del, bool *e_del)
  * @param del_v 指定要删除的顶点,默认为-1表示不指定
  *
  */
-void Graph::CTCP(int tv, int te, int del_v)
+void Graph::CTCP(int lb, int del_v)
 {
-    static int last_tv = 0;
+    static int last_lb = 0;
     Timer t;
     t.restart();
 
-    tv = max(0, tv);
-    te = max(0, te);
+    int tv = max(0, lb + 1 - K);
+    int te = max(0, lb + 1 - 2 * K);
 
     queue<ui> qv;
     queue<pair<ui, ept>> qe; // from, idx
-    for (ui i = 0; i < n; i++)
-        degree[i] = pstart[i + 1] - pstart[i];
+    for (ui i = 0; i < n; i++) degree[i] = pstart[i + 1] - pstart[i];
     get_tricnt();
 
     bool *v_del = new bool[n];
@@ -955,7 +971,7 @@ void Graph::CTCP(int tv, int te, int del_v)
     memset(e_del, 0, sizeof(bool) * m);
     memset(mark, 0, sizeof(ui) * n);
     if (del_v != -1) qv.push((ui)del_v);
-    if (last_tv < tv) {
+    if (last_lb < lb) {
         for (ui u = 0; u < n; u++) {
             if (degree[u] < tv) qv.push(u);
             for (ept i = pstart[u]; i < pend[u]; i++) {
@@ -964,7 +980,7 @@ void Graph::CTCP(int tv, int te, int del_v)
             }
         }
     }
-    last_tv = tv;
+    last_lb = lb;
     while (!qv.empty() || !qe.empty()) {
         while (!qe.empty()) {
             auto ue = qe.front();
@@ -972,7 +988,7 @@ void Graph::CTCP(int tv, int te, int del_v)
             ui u = ue.first;
             ept id_uv = ue.second;
             ui v = edges[id_uv];
-            ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
+            ept id_vu = rev_edges[id_uv];
             assert(e_del[id_uv] == e_del[id_vu]);
             if (v_del[u] || v_del[v] || e_del[id_uv]) continue;
             e_del[id_uv] = 1;
@@ -987,12 +1003,12 @@ void Graph::CTCP(int tv, int te, int del_v)
                 ui w = edges[j];
                 if (mark[w]) { // triangle count--
                     ept id_uw = mark[w] - 1;
-                    ept id_wu = pstart[w] + find(edges + pstart[w], edges + pend[w], u);
+                    ept id_wu = rev_edges[id_uw];
                     if ((tri_cnt[id_uw]--) == te) qe.push(make_pair(u, id_uw));
                     tri_cnt[id_wu]--;
 
                     ept id_vw = j;
-                    ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
+                    ept id_wv = rev_edges[id_vw];
                     if ((tri_cnt[id_vw]--) == te) qe.push(make_pair(v, id_vw));
                     tri_cnt[id_wv]--;
                 }
@@ -1001,10 +1017,8 @@ void Graph::CTCP(int tv, int te, int del_v)
             for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = 0;
         }
         if (!qv.empty()) {
-            ui u = qv.front();
-            qv.pop();
-            if (v_del[u]) continue;
-            v_del[u] = 1;
+            ui u = qv.front(); qv.pop();
+            if (v_del[u]) continue; v_del[u] = 1;
 
             for (ept i = pstart[u]; i < pend[u]; i++) if (!e_del[i]) mark[edges[i]] = i + 1;
 
@@ -1014,7 +1028,7 @@ void Graph::CTCP(int tv, int te, int del_v)
                     ui w = edges[j];
                     if (mark[w] && v < w) { // triangle count--
                         ept id_vw = j;
-                        ept id_wv = pstart[w] + find(edges + pstart[w], edges + pend[w], v);
+                        ept id_wv = rev_edges[id_vw];
                         if ((tri_cnt[id_vw]--) == te) qe.push(make_pair(v, id_vw));
                         tri_cnt[id_wv]--;
                     }
@@ -1027,7 +1041,7 @@ void Graph::CTCP(int tv, int te, int del_v)
                 ui v = edges[i];
                 if ((degree[v]--) == tv) qv.push(v);
                 ept id_uv = i;
-                ept id_vu = pstart[v] + find(edges + pstart[v], edges + pend[v], u);
+                ept id_vu = rev_edges[id_uv];
                 e_del[id_uv] = 1;
                 e_del[id_vu] = 1;
             }

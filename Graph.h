@@ -4,6 +4,7 @@
 #include "Utility.h"
 #include "Timer.h"
 #include "LinearHeap.h"
+#include "MyBitset.h"
 
 class Graph
 {
@@ -20,6 +21,7 @@ private:
     ept *pstart; // start of edge number of a point
     ept *pend;   // end of edge number of a point
     ui *edges;   // edges
+    ui *rev_edges;
     int *esign;
 
     ui *degree;   // degree of a point
@@ -29,6 +31,9 @@ private:
     ui *vis;
 
     int lb, ub;
+
+    MyBitset v_sel;
+    MyBitset e_sel;
 
 public:
     Graph(const int _k);
@@ -58,7 +63,6 @@ public:
      * @param print_solution 是否打印具体的k-plex顶点集
      */
     void print_result(bool print_solution);
-    //TODO
     /**
      * @brief 启发式算法寻找signed k-plex
      *
@@ -135,7 +139,7 @@ private:
      * @param del_v 指定要删除的顶点,默认为-1表示不指定
      *
      */
-    void CTCP(int tv, int te, int del_v = -1);
+    void CTCP(int lb, int del_v = -1);
 };
 
 #endif
