@@ -12,6 +12,7 @@ private:
     vector<ui> kplex;
     int K;
 
+    ui N, M, PM, NM;
     ui n;   // number of vertices
     ept m;  // number of edges
     ept pm; // number of positive edges
@@ -27,13 +28,11 @@ private:
     ui *degree;   // degree of a point
     ept *tri_cnt;
 
-    ui *v_rid;
     ui *vis;
 
     int lb, ub;
 
     MyBitset v_sel;
-    MyBitset e_sel;
 
 public:
     Graph(const int _k);
@@ -130,7 +129,7 @@ private:
      * @param e_del 边删除标记数组
      *
      */
-    void rebuild_graph(bool *v_del, bool *e_del);
+    void rebuild_graph(MyBitset &v_del, MyBitset &e_del);
     /**
      * @brief core-truss co-pruning
      *
@@ -140,6 +139,15 @@ private:
      *
      */
     void CTCP(int lb, int del_v = -1);
+    /**
+     * @brief core-truss co-pruning
+     *
+     * @param tv 顶点度数阈值,度数小于tv的顶点将被删除
+     * @param te 三角形数量阈值,三角形数小于te的边将被删除
+     * @param del_v 指定要删除的顶点,默认为-1表示不指定
+     *
+     */
+    void CTCP_new(int lb, int del_v = -1);
 };
 
 #endif

@@ -5,10 +5,8 @@
 #include "Timer.h"
 #include "MyBitset.h"
 #include "LinearHeap.h"
-
-#define _SECOND_ORDER_PRUNING_
+// #define _ONE_HOP_
 using Set = MyBitset;
-
 #define PRINT_SET(x)  print_set((x), #x)
 
 class SIGNED_KPLEX_BITSET
@@ -27,6 +25,7 @@ private:
     Set best_solution;
     vector<ui> degree;
     vector<ui> degree_in_S;
+    vector<ui> e_degree; // effective degree
     vector<ui> array_n_1;
     vector<ui> array_n_2;
 
@@ -68,6 +67,7 @@ public:
 
         degree.resize(n);
         degree_in_S.resize(n);
+        e_degree.resize(n);
         array_n_1.resize(n);
         array_n_2.resize(n);
 
@@ -242,7 +242,7 @@ private:
             printf("\tubsigned: find a heu solution of size %u\n", best_solution_size);
 #endif
         }
-    }
+        }
 
     void heu_kPlex_in_signed_graph()
     {
@@ -261,13 +261,28 @@ private:
 
     void bnb_search_two_hop(Set &S, Set &C)
     {
+        if (S.size() + C.size() <= best_solution_size) return;
+        dfs_cnt++;
         // ui level = S.size();
         bool pruned = false;
-        update_SC(S, C, pruned);
+
+        update_SC_two_hop(S, C, pruned);
         if (pruned) return;
+
+        dfs_cnt_1++;
+        if (S.size() + C.size() == best_solution_size + 1) {
+            if (check_balanced_kplex(S, C)) {
+                best_solution_size = S.size() + C.size();
+                best_solution = S | C;
+            }
+            return;
+        }
+        dfs_cnt_2++;
 
         ui ub = upper_bound_two_hop(S, C);
         if (ub <= best_solution_size) return;
+
+        dfs_cnt_after_prune++;
 #ifndef NDEBUG
         // 确定C中每个点都能加入到S中
         for (ui v : C) {
@@ -279,19 +294,19 @@ private:
         }
 #endif
 
-        //         if (ori_u != -1 && C.intersect(non_matrix[ori_u]) == 0) {
-        // #ifndef NDEBUG
-        //             printf("ori_u = %d, C.size = %d, non_matrix[ori_u].size = %d\n",
-        //                 ori_u, C.size(), non_matrix[ori_u].size());
-        // #endif
-        //             Set S0 = S, SL(n), SR(n);
-        //             Set CL = C & matrix[ori_u], CR = C & matrix[ori_u];
-        //             bnb_search_one_hop(S0, SL, SR, CL, CR);
-        //             return;
-        //         }
+#ifdef _ONE_HOP_
+        if (ori_u != -1 && C.intersect(non_matrix[ori_u]) == 0) {
+#ifndef NDEBUG
+            printf("ori_u = %d, C.size = %d, non_matrix[ori_u].size = %d\n",
+                ori_u, C.size(), non_matrix[ori_u].size());
+#endif
+            Set CL = C & p_matrix[ori_u], CR = C & n_matrix[ori_u];
+            bnb_search_one_hop(S, CL, CR);
+            return;
+        }
+#endif
         // choose branching vertex
         ui u = choose_branch_vertex_two_hop(S, C);
-        assert(C.contains(u));
         // generate two branches
         // the first branch includes u into S
         {
@@ -308,13 +323,90 @@ private:
             addedVertex = -1;
             bnb_search_two_hop(new_S, new_C);
         }
-    }
+        }
     /**
      * 当待选集中只剩下初始点u的邻居时，调用bnb_search_one_hop
      */
-    void bnb_search_one_hop(Set &S0, Set &SL, Set &SR, Set &CL, Set &CR)
+    void bnb_search_one_hop(Set &S, Set &CL, Set &CR)
     {
+        if (S.size() + CL.size() + CR.size() <= best_solution_size) return;
+        dfs_cnt++;
+        bool pruned = false;
 
+        update_SC_one_hop(S, CL, CR, pruned);
+        if (pruned) return;
+        dfs_cnt_1++;
+
+        if (S.size() + CL.size() + CR.size() == best_solution_size + 1) {
+            Set C = CL | CR;
+            if (check_balanced_kplex(S, C)) {
+                best_solution_size = S.size() + C.size();
+                best_solution = S | C;
+            }
+            return;
+        }
+        dfs_cnt_2++;
+
+        ui ub = upper_bound_one_hop(S, CL, CR);
+        if (ub <= best_solution_size) return;
+        dfs_cnt_after_prune++;
+
+        int pos = -1; // 0: CL, 1: CR
+        ui u = choose_branch_vertex_one_hop(S, CL, CR, pos);
+        assert(pos == 0 || pos == 1);
+
+        // generate two branches
+        // the first branch includes u into S
+        {
+            auto new_S = S, new_CL = CL, new_CR = CR;
+            addedVertex = u;
+            new_S.insert(u);
+            if (pos == 0) {
+                new_CL.remove(u);
+                new_CL &= non_n_matrix[u];
+                new_CR &= non_p_matrix[u];
+            }
+            else {
+                new_CR.remove(u);
+                new_CR &= non_n_matrix[u];
+                new_CL &= non_p_matrix[u];
+            }
+            bnb_search_one_hop(new_S, new_CL, new_CR);
+        }
+        // the second branch excludes u from S
+        {
+            auto new_S = S, new_CL = CL, new_CR = CR;
+            if (pos == 0) new_CL.remove(u);
+            else new_CR.remove(u);
+            addedVertex = -1;
+            bnb_search_one_hop(new_S, new_CL, new_CR);
+        }
+
+    }
+    /**
+     * @brief 检查S是否是平衡的signed k-plex
+     * @param S: the current set S
+     * @param C: the current candidate set C
+     * @return true if S is a balanced signed k-plex, false otherwise
+     */
+    bool check_balanced_kplex(Set &S, Set &C)
+    {
+        vector<ui> &SC = array_n_1;
+        ui SC_n = 0;
+        for (ui u : S) SC[SC_n++] = u;
+        for (ui u : C) SC[SC_n++] = u;
+        for (ui i = 0; i < SC_n; i++) if (S.intersect(matrix[SC[i]]) + C.intersect(matrix[SC[i]]) + K < SC_n) return false;
+        // check balance
+        for (ui i = 0; i < SC_n; i++) for (ui j = i + 1; j < SC_n; j++) for (ui k = j + 1; k < SC_n; k++) {
+            ui u = SC[i], v = SC[j], w = SC[k];
+            if (matrix[u][v] && matrix[u][w] && matrix[v][w]) {
+                int tri_cn = p_matrix[u][v] + p_matrix[u][w] + p_matrix[v][w];
+                tri_cn -= n_matrix[u][v] + n_matrix[u][w] + n_matrix[v][w];
+                if (tri_cn == 1 || tri_cn == -3) return false;
+            }
+        }
+
+        return true;
     }
     /**
      * @brief reduce the candidate set C
@@ -326,17 +418,11 @@ private:
      * 保证C中的点都能直接加入到S中
      *
      */
-    void update_SC(Set &S, Set &C, bool &pruned)
+    void update_SC_two_hop(Set &S, Set &C, bool &pruned)
     {
         pruned = false;
-        for (ui u : S) {
-            degree_in_S[u] = S.intersect(matrix[u]);
-            degree[u] = degree_in_S[u] + C.intersect(matrix[u]);
-        }
-        for (ui u : C) {
-            degree_in_S[u] = S.intersect(matrix[u]);
-            degree[u] = degree_in_S[u] + C.intersect(matrix[u]);
-        }
+        for (ui u : S) degree_in_S[u] = S.intersect(matrix[u]);
+        for (ui u : C) degree_in_S[u] = S.intersect(matrix[u]);
         // S中有新增的点，判断S是否是signed k-plex，并更新degree_in_S
         if (addedVertex != -1) {
             assert(addedVertex < n);
@@ -376,6 +462,9 @@ private:
             }
             C ^= unbalanced_vertices;
         }
+
+        for (ui u : S) degree[u] = degree_in_S[u] + C.intersect(matrix[u]);
+        for (ui u : C) degree[u] = degree_in_S[u] + C.intersect(matrix[u]);
         // 计算每个点的上界
         queue<ui> q;
         while (!q.empty()) q.pop();
@@ -407,10 +496,104 @@ private:
         // printf("reduce_kPlexT END: C_size: %d -> %d\n", C_size_old, C.size());
     }
 
+    void update_SC_one_hop(Set &S, Set &CL, Set &CR, bool &pruned)
+    {
+        pruned = false;
+        for (ui u : S) degree_in_S[u] = S.intersect(matrix[u]);
+        for (ui u : CL) degree_in_S[u] = S.intersect(matrix[u]);
+        for (ui u : CR) degree_in_S[u] = S.intersect(matrix[u]);
+
+        if (addedVertex != -1) {
+            for (ui u : S) {
+                if (degree_in_S[u] + K < S.size()) {
+                    pruned = true;
+                    return;
+                }
+                else if (degree_in_S[u] + K == S.size()) {
+                    CL &= matrix[u];
+                    CR &= matrix[u];
+                }
+            }
+
+            // reduce C
+            for (ui u : CL) if (degree_in_S[u] + K <= S.size()) CL.remove(u);
+            for (ui u : CR) if (degree_in_S[u] + K <= S.size()) CR.remove(u);
+
+            // update lower bound
+            if (S.size() > best_solution_size) {
+                best_solution_size = S.size();
+                best_solution = S;
+            }
+        }
+
+        for (ui u : S) degree[u] = degree_in_S[u] + CL.intersect(matrix[u]) + CR.intersect(matrix[u]);
+        for (ui u : S) if (degree[u] + K <= best_solution_size) {
+            pruned = true;
+            return;
+        }
+
+        for (ui u : CL) {
+            degree[u] = degree_in_S[u] + CL.intersect(matrix[u]) + CR.intersect(matrix[u]);
+            e_degree[u] = degree_in_S[u] + CL.intersect(p_matrix[u]) + CR.intersect(n_matrix[u]);
+            assert(degree[u] >= e_degree[u]);
+        }
+        for (ui u : CR) {
+            degree[u] = degree_in_S[u] + CL.intersect(matrix[u]) + CR.intersect(matrix[u]);
+            e_degree[u] = degree_in_S[u] + CL.intersect(n_matrix[u]) + CR.intersect(p_matrix[u]);
+            assert(degree[u] >= e_degree[u]);
+        }
+
+        // 计算每个点的上界
+        queue<pair<ui, int>> q;
+        while (!q.empty()) q.pop();
+
+        for (ui u : CL) if (e_degree[u] + K <= best_solution_size) q.push({ u, 0 });
+        for (ui u : CR) if (e_degree[u] + K <= best_solution_size) q.push({ u, 1 });
+
+        while (!q.empty()) {
+            ui u = q.front().first; int pos = q.front().second; q.pop();
+            assert(CL.contains(u) || CR.contains(u));
+            Set neighbors_in_S = matrix[u] & S;
+            Set neighbors_in_CL;
+            Set neighbors_in_CR;
+            if (pos == 0) {
+                CL.remove(u);
+                neighbors_in_CL = p_matrix[u] & CL;
+                neighbors_in_CR = n_matrix[u] & CR;
+            }
+            else {
+                CR.remove(u);
+                neighbors_in_CL = n_matrix[u] & CL;
+                neighbors_in_CR = p_matrix[u] & CR;
+            }
+            for (ui v : neighbors_in_S) if ((--degree[v]) + K == best_solution_size) {
+                pruned = true;
+                return;
+            }
+            for (ui v : neighbors_in_CL) if ((--e_degree[v]) + K == best_solution_size) {
+                q.push({ v, 0 });
+            }
+            for (ui v : neighbors_in_CR) if ((--e_degree[v]) + K == best_solution_size) {
+                q.push({ v, 1 });
+            }
+        }
+        // kPlexT中的上界
+        Set C = CL | CR;
+        reduce_kPlexT(S, C);
+    }
+
     ui upper_bound_two_hop(Set &S, Set &C)
     {
         ui ub = S.size() + C.size();
         ub = min(ub, upperbound_based_partition_two_hop(S, C));
+        return ub;
+    }
+
+    ui upper_bound_one_hop(Set &S, Set &CL, Set &CR)
+    {
+        ui ub = S.size() + CL.size() + CR.size();
+        Set C = CL | CR;
+        ub = min(ub, upperbound_based_partition_two_hop(S, C)); //TODO
         return ub;
     }
 
@@ -475,6 +658,11 @@ private:
         ub += C_copy.size();
 
         return ub;
+    }
+
+    ui upperbound_based_partition_one_hop(Set &S, Set &C)
+    {
+        return S.size() + C.size();
     }
     // 计算C中每个点v的上界
     void reduce_kPlexT(Set &S, Set &C)
@@ -547,6 +735,24 @@ private:
         return u;
     }
 
+    ui choose_branch_vertex_one_hop(Set &S, Set &CL, Set &CR, int &pos)
+    {
+        ui u = n;
+        ui min_degree_in_S = n;
+
+        for (ui v : CL) if (degree_in_S[v] < min_degree_in_S) {
+            u = v;
+            min_degree_in_S = degree_in_S[v];
+            pos = 0;
+        }
+        for (ui v : CR) if (degree_in_S[v] < min_degree_in_S) {
+            u = v;
+            min_degree_in_S = degree_in_S[v];
+            pos = 1;
+        }
+        assert(u != n);
+        return u;
+    }
     // 输出set中的每个数
     void print_set(Set &S, string name)
     {
@@ -554,6 +760,6 @@ private:
         for (ui v : S) printf("%u ", v);
         printf("\n");
     }
-};
+        };
 
 #endif /* _SIGNED_KPLEX_BITSET_ */

@@ -12,6 +12,11 @@ using ui = unsigned int;
 using ept = unsigned long;
 using pii = pair<ui, ui>;
 
+static long long dfs_cnt = 0;
+static long long dfs_cnt_1 = 0;
+static long long dfs_cnt_2 = 0;
+static long long dfs_cnt_after_prune = 0;
+
 struct Edge
 {
     int a, b, c;
